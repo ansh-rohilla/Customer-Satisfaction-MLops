@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/
+*.csv
+*.zip
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# ZenML
+.zen/
+
+# Environment
+.env
+
+# OS
+.DS_Store

@@ -7,7 +7,7 @@ from steps.evaluation import evaluation
 from steps.config import ModelNameConfig
 
 
-@pipeline(enable_cache=False)
+@pipeline(enable_cache=True)
 def train_pipeline():
 
     # 1. Ingest data

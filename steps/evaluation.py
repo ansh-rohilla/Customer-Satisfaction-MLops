@@ -54,7 +54,7 @@ def evaluation(
         rmse = rmse_class.calculate_score(y_test, prediction)
         mlflow.log_metric("rmse", rmse)
         
-        return r2_score, rmse
+        return mse, r2_score, rmse
     except Exception as e:
         logging.error(e)
         raise e

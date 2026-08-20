@@ -49,7 +49,7 @@ def main(config: str, min_accuracy: float):
 
     if deploy:
         continuous_deployment_pipeline(
-            min_accuracy=min_accuracy,
+            min_r2=min_accuracy,
             workers=3,
             timeout=60,
         )

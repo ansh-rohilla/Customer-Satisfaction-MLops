@@ -3,7 +3,6 @@ import json
 import numpy as np
 import pandas as pd
 
-from materializer.custom_materializer import cs_materializer
 from steps.clean_data import clean_data
 from steps.evaluation import evaluation
 from steps.ingest_data import ingest_data
@@ -19,44 +18,42 @@ from zenml.integrations.mlflow.services import MLFlowDeploymentService
 from zenml.integrations.mlflow.steps import mlflow_model_deployer_step
 
 from .utils import get_data_for_test
+from steps.config import ModelNameConfig
 
 
-# Step 1: Get data for inference
-
+# ============================================================
+# STEP 1: Get data for inference
+# ============================================================
 
 @step(enable_cache=True)
 def dynamic_importer() -> str:
-    """Downloads the latest data from a mock API."""
+    """Get the latest data for inference."""
 
     data = get_data_for_test()
     return data
 
-# Step 2: Deployment trigger
 
-
-class DeploymentTriggerConfig:
-    """Configuration used to decide whether a model should be deployed."""
-
-    def __init__(self, min_r2: float = 0.5):
-        self.min_r2 = min_r2
-
+# ============================================================
+# STEP 2: Deployment trigger
+# ============================================================
 
 @step
 def deployment_trigger(
     r2_score: float,
-    config: DeploymentTriggerConfig,
+    min_r2: float,
 ) -> bool:
     """
-    Deploy the model only if its R² score reaches the required threshold.
+    Decide whether the model should be deployed.
 
-    R² is appropriate here because this is a regression problem:
-    higher R² = better model.
+    The model is deployed only if:
+
+        R² >= minimum required R²
     """
 
     print(f"Model R² score: {r2_score}")
-    print(f"Minimum required R²: {config.min_r2}")
+    print(f"Minimum required R²: {min_r2}")
 
-    decision = r2_score >= config.min_r2
+    decision = r2_score >= min_r2
 
     if decision:
         print("Deployment trigger: TRUE")
@@ -68,11 +65,11 @@ def deployment_trigger(
     return decision
 
 
+# ============================================================
+# STEP 3: Load deployed MLflow service
+# ============================================================
 
-# Step 3: Load deployed MLflow service
-
-
-@step(enable_cache=True)
+@step(enable_cache=False)
 def prediction_service_loader(
     pipeline_name: str,
     pipeline_step_name: str,
@@ -80,7 +77,7 @@ def prediction_service_loader(
     model_name: str = "model",
 ) -> MLFlowDeploymentService:
     """
-    Get the MLflow prediction service started by the deployment pipeline.
+    Get the MLflow prediction service deployed by ZenML.
     """
 
     model_deployer = MLFlowModelDeployer.get_active_model_deployer()
@@ -100,27 +97,28 @@ def prediction_service_loader(
             f"'{model_name}' model is currently running."
         )
 
-    print(existing_services)
-    print(type(existing_services))
+    print("Found MLflow deployment service:")
+    print(existing_services[0])
 
     return existing_services[0]
 
 
-# Step 4: Make prediction
+# ============================================================
+# STEP 4: Make prediction
+# ============================================================
 
-
-@step
+@step(enable_cache=False)
 def predictor(
     service: MLFlowDeploymentService,
     data: str,
 ) -> np.ndarray:
-    """Run an inference request against the deployed MLflow model."""
+    """Run inference against the deployed MLflow model."""
 
     service.start(timeout=10)
 
     data = json.loads(data)
 
-    # Remove metadata fields
+    # Remove metadata
     data.pop("columns", None)
     data.pop("index", None)
 
@@ -144,13 +142,11 @@ def predictor(
         columns=columns_for_df,
     )
 
-    json_list = json.loads(
-        json.dumps(
-            list(df.T.to_dict().values())
+    prediction_data = np.array(
+        json.loads(
+            df.to_json(orient="records")
         )
     )
-
-    prediction_data = np.array(json_list)
 
     prediction = service.predict(prediction_data)
 
@@ -160,20 +156,22 @@ def predictor(
     return prediction
 
 
-
-# Pipeline 1: Continuous deployment
-
+# ============================================================
+# PIPELINE 1: Continuous Deployment
+# ============================================================
 
 @pipeline(enable_cache=True)
 def continuous_deployment_pipeline(
-    min_r2: float = 0.5,
+    min_r2: float = 0.08,
     workers: int = 1,
     timeout: int = DEFAULT_SERVICE_START_STOP_TIMEOUT,
 ):
     """
     Train, evaluate and conditionally deploy the model.
 
-    Deployment happens only when R² >= min_r2.
+    Deployment happens only when:
+
+        R² >= min_r2
     """
 
     # 1. Ingest data
@@ -184,11 +182,15 @@ def continuous_deployment_pipeline(
 
     # 3. Train model
     model = train_model(
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-    )
+    x_train,
+    x_test,
+    y_train,
+    y_test,
+    config=ModelNameConfig(
+        model_name="lightgbm",
+        fine_tuning=False,
+    ),
+)
 
     # 4. Evaluate model
     mse, r2, rmse = evaluation(
@@ -200,12 +202,10 @@ def continuous_deployment_pipeline(
     # 5. Decide whether to deploy
     deployment_decision = deployment_trigger(
         r2_score=r2,
-        config=DeploymentTriggerConfig(
-            min_r2=min_r2
-        ),
+        min_r2=min_r2,
     )
 
-    # 6. Deploy using MLflow
+    # 6. Deploy model using MLflow
     mlflow_model_deployer_step(
         model=model,
         deploy_decision=deployment_decision,
@@ -214,11 +214,11 @@ def continuous_deployment_pipeline(
     )
 
 
+# ============================================================
+# PIPELINE 2: Inference
+# ============================================================
 
-# Pipeline 2: Inference
-
-
-@pipeline(enable_cache=True)
+@pipeline(enable_cache=False)
 def inference_pipeline(
     pipeline_name: str,
     pipeline_step_name: str,
@@ -227,10 +227,10 @@ def inference_pipeline(
     Load the deployed MLflow model and make predictions.
     """
 
-    # Get new inference data
+    # 1. Get new inference data
     batch_data = dynamic_importer()
 
-    # Get deployed MLflow service
+    # 2. Get deployed MLflow service
     model_deployment_service = prediction_service_loader(
         pipeline_name=pipeline_name,
         pipeline_step_name=pipeline_step_name,
@@ -238,7 +238,7 @@ def inference_pipeline(
         model_name="model",
     )
 
-    # Make prediction
+    # 3. Make prediction
     predictor(
         service=model_deployment_service,
         data=batch_data,

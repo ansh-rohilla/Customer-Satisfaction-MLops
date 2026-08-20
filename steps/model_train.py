@@ -18,7 +18,10 @@ from .config import ModelNameConfig
 experiment_tracker = Client().active_stack.experiment_tracker
 
 
-@step(experiment_tracker=experiment_tracker.name)
+@step(
+        enable_cache=False,
+        experiment_tracker=experiment_tracker.name,
+)
 def train_model(
     x_train: pd.DataFrame,
     x_test: pd.DataFrame,

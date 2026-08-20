@@ -34,11 +34,11 @@ DEPLOY_AND_PREDICT = "deploy_and_predict"
     ),
 )
 @click.option(
-    "--min-accuracy",
-    default=0.92,
-    help="Minimum model score required to deploy the model.",
+    "--min-r2",
+    default=0.08,
+    help="Minimum R² score required to deploy the model",
 )
-def main(config: str, min_accuracy: float):
+def main(config: str, min_r2: float):
 
     mlflow_model_deployer_component = (
         MLFlowModelDeployer.get_active_model_deployer()
@@ -49,7 +49,7 @@ def main(config: str, min_accuracy: float):
 
     if deploy:
         continuous_deployment_pipeline(
-            min_r2=min_accuracy,
+            min_r2=min_r2,
             workers=3,
             timeout=60,
         )

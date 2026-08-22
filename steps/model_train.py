@@ -26,7 +26,7 @@ from zenml.client import Client
 ENABLE_FINE_TUNING = True
 OPTUNA_TRIALS = 10
 
-CV_SPLITS = 5
+CV_FOLDS = 5
 RANDOM_STATE = 42
 
 
@@ -69,7 +69,7 @@ def train_model(
         candidate_models = get_candidate_models()
 
         benchmark = ModelBenchmark(
-            n_splits=CV_SPLITS,
+            n_splits=CV_FOLDS,
             random_state=RANDOM_STATE,
         )
 
@@ -79,6 +79,7 @@ def train_model(
             y_train,
         )
 
+        # Make sure best model is first
         results = (
             results
             .sort_values(
@@ -116,7 +117,7 @@ def train_model(
 
         best_model_name = results.iloc[0]["model"]
 
-        best_cv_r2 = float(
+        baseline_cv_r2 = float(
             results.iloc[0]["cv_r2"]
         )
 
@@ -126,8 +127,8 @@ def train_model(
             f"{best_model_name}"
         )
         print(
-            f"BEST CV R²: "
-            f"{best_cv_r2:.4f}"
+            f"BASELINE CV R²: "
+            f"{baseline_cv_r2:.4f}"
         )
         print("=" * 60)
 
@@ -166,8 +167,8 @@ def train_model(
         )
 
         mlflow.log_param(
-            "cv_splits",
-            CV_SPLITS,
+            "benchmark_cv_folds",
+            CV_FOLDS,
         )
 
         mlflow.log_param(
@@ -180,9 +181,11 @@ def train_model(
         # 5. CREATE SELECTED MODEL
         #
         # IMPORTANT:
-        # No MLflow autologging here.
+        # DO NOT ENABLE MLFLOW AUTOLOGGING HERE.
         #
-        # Optuna will train multiple configurations.
+        # Optuna will train many models.
+        # Enabling autologging here can cause MLflow
+        # parameter conflicts between trials.
         # ====================================================
 
         if best_model_name == "lightgbm":
@@ -210,11 +213,6 @@ def train_model(
 
         # ====================================================
         # 6. OPTUNA HYPERPARAMETER TUNING
-        #
-        # IMPORTANT:
-        # x_test and y_test are NOT used here.
-        #
-        # Optuna uses K-Fold CV on training data.
         # ====================================================
 
         if ENABLE_FINE_TUNING:
@@ -230,21 +228,132 @@ def train_model(
                 model=model,
                 x_train=x_train,
                 y_train=y_train,
-                n_splits=CV_SPLITS,
+                n_splits=CV_FOLDS,
                 random_state=RANDOM_STATE,
             )
 
-            best_params = tuner.optimize(
+            tuning_results = tuner.optimize(
                 n_trials=OPTUNA_TRIALS,
             )
 
-            print("\nBest parameters:")
-            print(best_params)
+            # ------------------------------------------------
+            # Extract tuning results
+            # ------------------------------------------------
+
+            best_params = tuning_results[
+                "best_params"
+            ]
+
+            tuned_cv_r2 = float(
+                tuning_results["best_cv_r2"]
+            )
+
+            tuned_cv_r2_std = float(
+                tuning_results["cv_r2_std"]
+            )
+
+            tuned_cv_rmse = float(
+                tuning_results["cv_rmse"]
+            )
+
+            tuned_cv_rmse_std = float(
+                tuning_results["cv_rmse_std"]
+            )
+
+            tuned_cv_mae = float(
+                tuning_results["cv_mae"]
+            )
+
+            tuned_cv_mae_std = float(
+                tuning_results["cv_mae_std"]
+            )
+
+
+            # ------------------------------------------------
+            # Calculate improvement
+            # ------------------------------------------------
+
+            cv_r2_improvement = (
+                tuned_cv_r2
+                - baseline_cv_r2
+            )
+
+            if baseline_cv_r2 != 0:
+
+                cv_r2_improvement_pct = (
+                    cv_r2_improvement
+                    / abs(baseline_cv_r2)
+                ) * 100
+
+            else:
+
+                cv_r2_improvement_pct = 0.0
+
+
+            # =================================================
+            # DISPLAY OPTUNA RESULTS
+            # =================================================
+
+            print("\n" + "=" * 60)
+            print("OPTUNA RESULTS")
+            print("=" * 60)
 
             print(
-                "\nBest parameters will be used "
-                "for the final model."
+                f"Baseline CV R² : "
+                f"{baseline_cv_r2:.4f}"
             )
+
+            print(
+                f"Tuned CV R²    : "
+                f"{tuned_cv_r2:.4f}"
+            )
+
+            print(
+                f"CV R² Std      : "
+                f"{tuned_cv_r2_std:.4f}"
+            )
+
+            print(
+                f"CV RMSE        : "
+                f"{tuned_cv_rmse:.4f}"
+            )
+
+            print(
+                f"CV RMSE Std    : "
+                f"{tuned_cv_rmse_std:.4f}"
+            )
+
+            print(
+                f"CV MAE         : "
+                f"{tuned_cv_mae:.4f}"
+            )
+
+            print(
+                f"CV MAE Std     : "
+                f"{tuned_cv_mae_std:.4f}"
+            )
+
+            print(
+                f"R² Improvement : "
+                f"{cv_r2_improvement:.4f}"
+            )
+
+            print(
+                f"Improvement %  : "
+                f"{cv_r2_improvement_pct:.2f}%"
+            )
+
+            print(
+                f"Best Parameters: "
+                f"{best_params}"
+            )
+
+            print("=" * 60)
+
+
+            # =================================================
+            # LOG OPTUNA INFORMATION TO MLFLOW
+            # =================================================
 
             mlflow.log_param(
                 "optuna_enabled",
@@ -256,9 +365,75 @@ def train_model(
                 OPTUNA_TRIALS,
             )
 
+            mlflow.log_param(
+                "optuna_cv_folds",
+                CV_FOLDS,
+            )
+
+
+            # ------------------------------------------------
+            # CV METRICS
+            # ------------------------------------------------
+
+            mlflow.log_metric(
+                "baseline_cv_r2",
+                baseline_cv_r2,
+            )
+
+            mlflow.log_metric(
+                "tuned_cv_r2",
+                tuned_cv_r2,
+            )
+
+            mlflow.log_metric(
+                "tuned_cv_r2_std",
+                tuned_cv_r2_std,
+            )
+
+            mlflow.log_metric(
+                "tuned_cv_rmse",
+                tuned_cv_rmse,
+            )
+
+            mlflow.log_metric(
+                "tuned_cv_rmse_std",
+                tuned_cv_rmse_std,
+            )
+
+            mlflow.log_metric(
+                "tuned_cv_mae",
+                tuned_cv_mae,
+            )
+
+            mlflow.log_metric(
+                "tuned_cv_mae_std",
+                tuned_cv_mae_std,
+            )
+
+
+            # ------------------------------------------------
+            # Improvement metrics
+            # ------------------------------------------------
+
+            mlflow.log_metric(
+                "cv_r2_improvement",
+                cv_r2_improvement,
+            )
+
+            mlflow.log_metric(
+                "cv_r2_improvement_pct",
+                cv_r2_improvement_pct,
+            )
+
         else:
 
+            # =================================================
+            # FINE TUNING DISABLED
+            # =================================================
+
             best_params = {}
+
+            tuned_cv_r2 = baseline_cv_r2
 
             mlflow.log_param(
                 "optuna_enabled",
@@ -269,7 +444,7 @@ def train_model(
         # ====================================================
         # 7. ENABLE MLFLOW AUTOLOGGING
         #
-        # ONLY FOR FINAL MODEL
+        # ONLY FOR THE FINAL MODEL.
         # ====================================================
 
         print("\n" + "=" * 60)
@@ -291,11 +466,17 @@ def train_model(
 
         # ====================================================
         # 8. LOG FINAL OPTUNA PARAMETERS
+        #
+        # Use unique parameter names so they don't conflict
+        # with MLflow's final-model autologging.
         # ====================================================
 
         if ENABLE_FINE_TUNING:
 
-            for param_name, param_value in best_params.items():
+            for (
+                param_name,
+                param_value
+            ) in best_params.items():
 
                 mlflow.log_param(
                     f"tuned_{param_name}",
@@ -305,10 +486,6 @@ def train_model(
 
         # ====================================================
         # 9. TRAIN FINAL MODEL
-        #
-        # Uses ALL training data.
-        #
-        # Test data remains untouched.
         # ====================================================
 
         print("\n" + "=" * 60)
@@ -340,15 +517,31 @@ def train_model(
         print("=" * 60)
 
         print(
-            f"Model: {best_model_name}"
+            f"Model: "
+            f"{best_model_name}"
         )
 
         print(
-            f"Benchmark CV R²: "
-            f"{best_cv_r2:.4f}"
+            f"Baseline CV R²: "
+            f"{baseline_cv_r2:.4f}"
         )
 
         if ENABLE_FINE_TUNING:
+
+            print(
+                f"Tuned CV R²: "
+                f"{tuned_cv_r2:.4f}"
+            )
+
+            print(
+                f"CV R² Improvement: "
+                f"{cv_r2_improvement:.4f}"
+            )
+
+            print(
+                f"CV R² Improvement %: "
+                f"{cv_r2_improvement_pct:.2f}%"
+            )
 
             print(
                 f"Optuna Trials: "

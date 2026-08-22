@@ -18,7 +18,6 @@ from zenml.integrations.mlflow.services import MLFlowDeploymentService
 from zenml.integrations.mlflow.steps import mlflow_model_deployer_step
 
 from .utils import get_data_for_test
-from steps.config import ModelNameConfig
 
 
 # ============================================================
@@ -30,6 +29,7 @@ def dynamic_importer() -> str:
     """Get the latest data for inference."""
 
     data = get_data_for_test()
+
     return data
 
 
@@ -45,7 +45,7 @@ def deployment_trigger(
     """
     Decide whether the model should be deployed.
 
-    The model is deployed only if:
+    Deployment happens only when:
 
         R² >= minimum required R²
     """
@@ -56,9 +56,12 @@ def deployment_trigger(
     decision = r2_score >= min_r2
 
     if decision:
+
         print("Deployment trigger: TRUE")
         print("Model meets the required R² threshold.")
+
     else:
+
         print("Deployment trigger: FALSE")
         print("Model does not meet the required R² threshold.")
 
@@ -76,23 +79,30 @@ def prediction_service_loader(
     running: bool = True,
     model_name: str = "model",
 ) -> MLFlowDeploymentService:
+
     """
     Get the MLflow prediction service deployed by ZenML.
     """
 
-    model_deployer = MLFlowModelDeployer.get_active_model_deployer()
+    model_deployer = (
+        MLFlowModelDeployer
+        .get_active_model_deployer()
+    )
 
-    existing_services = model_deployer.find_model_server(
-        pipeline_name=pipeline_name,
-        pipeline_step_name=pipeline_step_name,
-        model_name=model_name,
-        running=running,
+    existing_services = (
+        model_deployer.find_model_server(
+            pipeline_name=pipeline_name,
+            pipeline_step_name=pipeline_step_name,
+            model_name=model_name,
+            running=running,
+        )
     )
 
     if not existing_services:
+
         raise RuntimeError(
-            f"No MLflow prediction service deployed by the "
-            f"'{pipeline_step_name}' step in the "
+            f"No MLflow prediction service deployed by "
+            f"the '{pipeline_step_name}' step in the "
             f"'{pipeline_name}' pipeline for the "
             f"'{model_name}' model is currently running."
         )
@@ -112,6 +122,7 @@ def predictor(
     service: MLFlowDeploymentService,
     data: str,
 ) -> np.ndarray:
+
     """Run inference against the deployed MLflow model."""
 
     service.start(timeout=10)
@@ -144,11 +155,15 @@ def predictor(
 
     prediction_data = np.array(
         json.loads(
-            df.to_json(orient="records")
+            df.to_json(
+                orient="records"
+            )
         )
     )
 
-    prediction = service.predict(prediction_data)
+    prediction = service.predict(
+        prediction_data
+    )
 
     print("Prediction:")
     print(prediction)
@@ -166,46 +181,78 @@ def continuous_deployment_pipeline(
     workers: int = 1,
     timeout: int = DEFAULT_SERVICE_START_STOP_TIMEOUT,
 ):
+
     """
-    Train, evaluate and conditionally deploy the model.
+    Train, benchmark, tune, evaluate and
+    conditionally deploy the best model.
 
-    Deployment happens only when:
+    Pipeline flow:
 
-        R² >= min_r2
+        Ingest
+          ↓
+        Clean
+          ↓
+        Benchmark Models
+          ↓
+        Select Best Model
+          ↓
+        Optuna Fine-Tuning
+          ↓
+        Evaluation
+          ↓
+        Deployment Trigger
+          ↓
+        MLflow Deployment
     """
 
+    # ========================================================
     # 1. Ingest data
+    # ========================================================
+
     df = ingest_data()
 
+    # ========================================================
     # 2. Clean and split data
-    x_train, x_test, y_train, y_test = clean_data(df)
+    # ========================================================
 
-    # 3. Train model
+    x_train, x_test, y_train, y_test = clean_data(
+        df
+    )
+
+    # ========================================================
+    # 3. Automatically benchmark and train best model
+    # ========================================================
+
     model = train_model(
-    x_train,
-    x_test,
-    y_train,
-    y_test,
-    config=ModelNameConfig(
-        model_name="lightgbm",
-        fine_tuning=False,
-    ),
-)
+        x_train,
+        x_test,
+        y_train,
+        y_test,
+    )
 
-    # 4. Evaluate model
+    # ========================================================
+    # 4. Evaluate best model
+    # ========================================================
+
     mse, r2, rmse = evaluation(
         model,
         x_test,
         y_test,
     )
 
+    # ========================================================
     # 5. Decide whether to deploy
+    # ========================================================
+
     deployment_decision = deployment_trigger(
         r2_score=r2,
         min_r2=min_r2,
     )
 
-    # 6. Deploy model using MLflow
+    # ========================================================
+    # 6. Deploy best model using MLflow
+    # ========================================================
+
     mlflow_model_deployer_step(
         model=model,
         deploy_decision=deployment_decision,
@@ -223,22 +270,35 @@ def inference_pipeline(
     pipeline_name: str,
     pipeline_step_name: str,
 ):
+
     """
-    Load the deployed MLflow model and make predictions.
+    Load the deployed MLflow model
+    and make predictions.
     """
 
+    # ========================================================
     # 1. Get new inference data
+    # ========================================================
+
     batch_data = dynamic_importer()
 
+    # ========================================================
     # 2. Get deployed MLflow service
-    model_deployment_service = prediction_service_loader(
-        pipeline_name=pipeline_name,
-        pipeline_step_name=pipeline_step_name,
-        running=False,
-        model_name="model",
+    # ========================================================
+
+    model_deployment_service = (
+        prediction_service_loader(
+            pipeline_name=pipeline_name,
+            pipeline_step_name=pipeline_step_name,
+            running=False,
+            model_name="model",
+        )
     )
 
+    # ========================================================
     # 3. Make prediction
+    # ========================================================
+
     predictor(
         service=model_deployment_service,
         data=batch_data,

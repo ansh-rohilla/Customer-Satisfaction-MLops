@@ -26,6 +26,9 @@ from zenml.client import Client
 ENABLE_FINE_TUNING = True
 OPTUNA_TRIALS = 10
 
+CV_SPLITS = 5
+RANDOM_STATE = 42
+
 
 # ============================================================
 # MLFLOW EXPERIMENT TRACKER
@@ -66,8 +69,8 @@ def train_model(
         candidate_models = get_candidate_models()
 
         benchmark = ModelBenchmark(
-            n_splits=5,
-            random_state=42,
+            n_splits=CV_SPLITS,
+            random_state=RANDOM_STATE,
         )
 
         results = benchmark.compare_models(
@@ -76,7 +79,6 @@ def train_model(
             y_train,
         )
 
-        # Make sure best model is first
         results = (
             results
             .sort_values(
@@ -164,8 +166,13 @@ def train_model(
         )
 
         mlflow.log_param(
-            "benchmark_cv_splits",
-            5,
+            "cv_splits",
+            CV_SPLITS,
+        )
+
+        mlflow.log_param(
+            "random_state",
+            RANDOM_STATE,
         )
 
 
@@ -173,11 +180,9 @@ def train_model(
         # 5. CREATE SELECTED MODEL
         #
         # IMPORTANT:
-        # DO NOT ENABLE MLFLOW AUTOLOGGING HERE.
+        # No MLflow autologging here.
         #
-        # Optuna will train many models. If autologging is
-        # enabled here, MLflow will try to overwrite parameters
-        # between Optuna trials.
+        # Optuna will train multiple configurations.
         # ====================================================
 
         if best_model_name == "lightgbm":
@@ -205,6 +210,11 @@ def train_model(
 
         # ====================================================
         # 6. OPTUNA HYPERPARAMETER TUNING
+        #
+        # IMPORTANT:
+        # x_test and y_test are NOT used here.
+        #
+        # Optuna uses K-Fold CV on training data.
         # ====================================================
 
         if ENABLE_FINE_TUNING:
@@ -217,11 +227,11 @@ def train_model(
             print("=" * 60)
 
             tuner = HyperparameterTuner(
-                model,
-                x_train,
-                y_train,
-                x_test,
-                y_test,
+                model=model,
+                x_train=x_train,
+                y_train=y_train,
+                n_splits=CV_SPLITS,
+                random_state=RANDOM_STATE,
             )
 
             best_params = tuner.optimize(
@@ -235,11 +245,6 @@ def train_model(
                 "\nBest parameters will be used "
                 "for the final model."
             )
-
-            # Store tuning information with unique names.
-            # We intentionally do NOT use mlflow.log_params()
-            # here because the final model's autologging will
-            # also log its parameters.
 
             mlflow.log_param(
                 "optuna_enabled",
@@ -264,10 +269,7 @@ def train_model(
         # ====================================================
         # 7. ENABLE MLFLOW AUTOLOGGING
         #
-        # ONLY NOW.
-        #
-        # This is the FINAL MODEL.
-        # Optuna has already finished.
+        # ONLY FOR FINAL MODEL
         # ====================================================
 
         print("\n" + "=" * 60)
@@ -289,8 +291,6 @@ def train_model(
 
         # ====================================================
         # 8. LOG FINAL OPTUNA PARAMETERS
-        #
-        # Use unique names to avoid conflicts with autologging.
         # ====================================================
 
         if ENABLE_FINE_TUNING:
@@ -305,6 +305,10 @@ def train_model(
 
         # ====================================================
         # 9. TRAIN FINAL MODEL
+        #
+        # Uses ALL training data.
+        #
+        # Test data remains untouched.
         # ====================================================
 
         print("\n" + "=" * 60)

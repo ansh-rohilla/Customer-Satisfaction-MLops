@@ -3,6 +3,7 @@ import pandas as pd
 import xgboost as xgb
 
 from abc import ABC, abstractmethod
+
 from lightgbm import LGBMRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
@@ -21,13 +22,13 @@ class Model(ABC):
         pass
 
     @abstractmethod
-    def optimize(
+    def optimize_cv(
         self,
         trial,
         x_train,
         y_train,
-        x_valid,
-        y_valid,
+        n_splits=5,
+        random_state=42,
     ):
         pass
 
@@ -38,7 +39,12 @@ class Model(ABC):
 
 class RandomForestModel(Model):
 
-    def train(self, x_train, y_train, **kwargs):
+    def train(
+        self,
+        x_train,
+        y_train,
+        **kwargs
+    ):
 
         reg = RandomForestRegressor(
             random_state=42,
@@ -46,47 +52,64 @@ class RandomForestModel(Model):
             **kwargs,
         )
 
-        reg.fit(x_train, y_train)
+        reg.fit(
+            x_train,
+            y_train,
+        )
 
         return reg
 
-    def optimize(
+    def optimize_cv(
         self,
         trial,
         x_train,
         y_train,
-        x_valid,
-        y_valid,
+        n_splits=5,
+        random_state=42,
     ):
 
-        params = {
-            "n_estimators": trial.suggest_int(
-                "n_estimators",
-                100,
-                500,
-            ),
-            "max_depth": trial.suggest_int(
-                "max_depth",
-                5,
-                30,
-            ),
-            "min_samples_split": trial.suggest_int(
-                "min_samples_split",
-                2,
-                20,
-            ),
-        }
+        n_estimators = trial.suggest_int(
+            "n_estimators",
+            100,
+            500,
+        )
 
-        reg = self.train(
+        max_depth = trial.suggest_int(
+            "max_depth",
+            5,
+            30,
+        )
+
+        min_samples_split = trial.suggest_int(
+            "min_samples_split",
+            2,
+            20,
+        )
+
+        model = RandomForestRegressor(
+            random_state=42,
+            n_jobs=-1,
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            min_samples_split=min_samples_split,
+        )
+
+        kfold = KFold(
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=random_state,
+        )
+
+        scores = cross_validate(
+            model,
             x_train,
             y_train,
-            **params,
+            cv=kfold,
+            scoring="r2",
+            n_jobs=-1,
         )
 
-        return reg.score(
-            x_valid,
-            y_valid,
-        )
+        return scores["test_score"].mean()
 
 
 # ============================================================
@@ -95,7 +118,12 @@ class RandomForestModel(Model):
 
 class LightGBMModel(Model):
 
-    def train(self, x_train, y_train, **kwargs):
+    def train(
+        self,
+        x_train,
+        y_train,
+        **kwargs
+    ):
 
         reg = LGBMRegressor(
             random_state=42,
@@ -103,53 +131,72 @@ class LightGBMModel(Model):
             **kwargs,
         )
 
-        reg.fit(x_train, y_train)
+        reg.fit(
+            x_train,
+            y_train,
+        )
 
         return reg
 
-    def optimize(
+    def optimize_cv(
         self,
         trial,
         x_train,
         y_train,
-        x_valid,
-        y_valid,
+        n_splits=5,
+        random_state=42,
     ):
 
-        params = {
-            "n_estimators": trial.suggest_int(
-                "n_estimators",
-                100,
-                1000,
-            ),
-            "max_depth": trial.suggest_int(
-                "max_depth",
-                3,
-                15,
-            ),
-            "learning_rate": trial.suggest_float(
-                "learning_rate",
-                0.01,
-                0.3,
-                log=True,
-            ),
-            "num_leaves": trial.suggest_int(
-                "num_leaves",
-                20,
-                150,
-            ),
-        }
+        n_estimators = trial.suggest_int(
+            "n_estimators",
+            100,
+            1000,
+        )
 
-        reg = self.train(
+        max_depth = trial.suggest_int(
+            "max_depth",
+            3,
+            15,
+        )
+
+        learning_rate = trial.suggest_float(
+            "learning_rate",
+            0.01,
+            0.3,
+            log=True,
+        )
+
+        num_leaves = trial.suggest_int(
+            "num_leaves",
+            20,
+            150,
+        )
+
+        model = LGBMRegressor(
+            random_state=42,
+            verbosity=-1,
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            learning_rate=learning_rate,
+            num_leaves=num_leaves,
+        )
+
+        kfold = KFold(
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=random_state,
+        )
+
+        scores = cross_validate(
+            model,
             x_train,
             y_train,
-            **params,
+            cv=kfold,
+            scoring="r2",
+            n_jobs=-1,
         )
 
-        return reg.score(
-            x_valid,
-            y_valid,
-        )
+        return scores["test_score"].mean()
 
 
 # ============================================================
@@ -158,7 +205,12 @@ class LightGBMModel(Model):
 
 class XGBoostModel(Model):
 
-    def train(self, x_train, y_train, **kwargs):
+    def train(
+        self,
+        x_train,
+        y_train,
+        **kwargs
+    ):
 
         reg = xgb.XGBRegressor(
             random_state=42,
@@ -167,58 +219,80 @@ class XGBoostModel(Model):
             **kwargs,
         )
 
-        reg.fit(x_train, y_train)
+        reg.fit(
+            x_train,
+            y_train,
+        )
 
         return reg
 
-    def optimize(
+    def optimize_cv(
         self,
         trial,
         x_train,
         y_train,
-        x_valid,
-        y_valid,
+        n_splits=5,
+        random_state=42,
     ):
 
-        params = {
-            "n_estimators": trial.suggest_int(
-                "n_estimators",
-                100,
-                1000,
-            ),
-            "max_depth": trial.suggest_int(
-                "max_depth",
-                3,
-                12,
-            ),
-            "learning_rate": trial.suggest_float(
-                "learning_rate",
-                0.01,
-                0.3,
-                log=True,
-            ),
-            "subsample": trial.suggest_float(
-                "subsample",
-                0.6,
-                1.0,
-            ),
-            "colsample_bytree": trial.suggest_float(
-                "colsample_bytree",
-                0.6,
-                1.0,
-            ),
-        }
+        n_estimators = trial.suggest_int(
+            "n_estimators",
+            100,
+            1000,
+        )
 
-        reg = self.train(
+        max_depth = trial.suggest_int(
+            "max_depth",
+            3,
+            12,
+        )
+
+        learning_rate = trial.suggest_float(
+            "learning_rate",
+            0.01,
+            0.3,
+            log=True,
+        )
+
+        subsample = trial.suggest_float(
+            "subsample",
+            0.6,
+            1.0,
+        )
+
+        colsample_bytree = trial.suggest_float(
+            "colsample_bytree",
+            0.6,
+            1.0,
+        )
+
+        model = xgb.XGBRegressor(
+            random_state=42,
+            objective="reg:squarederror",
+            n_jobs=-1,
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            learning_rate=learning_rate,
+            subsample=subsample,
+            colsample_bytree=colsample_bytree,
+        )
+
+        kfold = KFold(
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=random_state,
+        )
+
+        scores = cross_validate(
+            model,
             x_train,
             y_train,
-            **params,
+            cv=kfold,
+            scoring="r2",
+            n_jobs=-1,
         )
 
-        return reg.score(
-            x_valid,
-            y_valid,
-        )
+        return scores["test_score"].mean()
 
 
 # ============================================================
@@ -227,7 +301,12 @@ class XGBoostModel(Model):
 
 class LinearRegressionModel(Model):
 
-    def train(self, x_train, y_train, **kwargs):
+    def train(
+        self,
+        x_train,
+        y_train,
+        **kwargs
+    ):
 
         reg = LinearRegression(
             **kwargs,
@@ -240,24 +319,33 @@ class LinearRegressionModel(Model):
 
         return reg
 
-    def optimize(
+    def optimize_cv(
         self,
         trial,
         x_train,
         y_train,
-        x_valid,
-        y_valid,
+        n_splits=5,
+        random_state=42,
     ):
 
-        reg = self.train(
-            x_train,
-            y_train,
+        model = LinearRegression()
+
+        kfold = KFold(
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=random_state,
         )
 
-        return reg.score(
-            x_valid,
-            y_valid,
+        scores = cross_validate(
+            model,
+            x_train,
+            y_train,
+            cv=kfold,
+            scoring="r2",
+            n_jobs=-1,
         )
+
+        return scores["test_score"].mean()
 
 
 # ============================================================
@@ -265,27 +353,33 @@ class LinearRegressionModel(Model):
 # ============================================================
 
 class HyperparameterTuner:
+    """
+    Performs Optuna hyperparameter optimization
+    using K-Fold Cross-Validation.
+
+    IMPORTANT:
+    The test set is intentionally NOT used.
+    """
 
     def __init__(
         self,
         model,
         x_train,
         y_train,
-        x_valid,
-        y_valid,
+        n_splits=5,
+        random_state=42,
     ):
 
         self.model = model
-
         self.x_train = x_train
         self.y_train = y_train
 
-        self.x_valid = x_valid
-        self.y_valid = y_valid
+        self.n_splits = n_splits
+        self.random_state = random_state
 
     def optimize(
         self,
-        n_trials=10,
+        n_trials=30,
     ):
 
         study = optuna.create_study(
@@ -293,15 +387,24 @@ class HyperparameterTuner:
         )
 
         study.optimize(
-            lambda trial:
-                self.model.optimize(
-                    trial,
-                    self.x_train,
-                    self.y_train,
-                    self.x_valid,
-                    self.y_valid,
-                ),
+            lambda trial: self.model.optimize_cv(
+                trial,
+                self.x_train,
+                self.y_train,
+                n_splits=self.n_splits,
+                random_state=self.random_state,
+            ),
             n_trials=n_trials,
+        )
+
+        print(
+            f"\nBest Optuna CV R²: "
+            f"{study.best_value:.4f}"
+        )
+
+        print(
+            f"Best parameters: "
+            f"{study.best_trial.params}"
         )
 
         return study.best_trial.params
@@ -395,11 +498,15 @@ class ModelBenchmark:
             results
         )
 
-        results_df = results_df.sort_values(
-            by="cv_r2",
-            ascending=False,
-        ).reset_index(
-            drop=True
+        results_df = (
+            results_df
+            .sort_values(
+                by="cv_r2",
+                ascending=False,
+            )
+            .reset_index(
+                drop=True
+            )
         )
 
         return results_df
@@ -430,5 +537,4 @@ def get_candidate_models():
         ),
 
         "linear_regression": LinearRegression(),
-
     }

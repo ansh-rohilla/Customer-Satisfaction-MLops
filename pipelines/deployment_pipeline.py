@@ -25,7 +25,7 @@ from steps.config import ModelNameConfig
 # STEP 1: Get data for inference
 # ============================================================
 
-@step(enable_cache=True)
+@step(enable_cache=False)
 def dynamic_importer() -> str:
     """Get the latest data for inference."""
 
@@ -160,7 +160,7 @@ def predictor(
 # PIPELINE 1: Continuous Deployment
 # ============================================================
 
-@pipeline(enable_cache=True)
+@pipeline(enable_cache=False)
 def continuous_deployment_pipeline(
     min_r2: float = 0.08,
     workers: int = 1,

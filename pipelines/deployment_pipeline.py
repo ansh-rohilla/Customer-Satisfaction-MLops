@@ -1,5 +1,6 @@
 import json
 
+import mlflow
 import numpy as np
 import pandas as pd
 
@@ -34,36 +35,117 @@ def dynamic_importer() -> str:
 
 
 # ============================================================
-# STEP 2: Deployment trigger
+# STEP 2: Deployment Quality Gate
 # ============================================================
 
 @step
 def deployment_trigger(
     r2_score: float,
+    rmse: float,
     min_r2: float,
+    max_rmse: float,
 ) -> bool:
     """
     Decide whether the model should be deployed.
 
-    Deployment happens only when:
+    Deployment happens only when BOTH conditions are met:
 
         R² >= minimum required R²
+        RMSE <= maximum allowed RMSE
     """
 
-    print(f"Model R² score: {r2_score}")
-    print(f"Minimum required R²: {min_r2}")
+    print("\n" + "=" * 60)
+    print("MODEL DEPLOYMENT QUALITY GATE")
+    print("=" * 60)
 
-    decision = r2_score >= min_r2
+    print(f"Test R²: {r2_score:.6f}")
+    print(f"Minimum required R²: {min_r2:.6f}")
+
+    print(f"Test RMSE: {rmse:.6f}")
+    print(f"Maximum allowed RMSE: {max_rmse:.6f}")
+
+    # ========================================================
+    # QUALITY CHECKS
+    # ========================================================
+
+    r2_pass = r2_score >= min_r2
+    rmse_pass = rmse <= max_rmse
+
+    print("\nQuality Checks:")
+
+    print(
+        f"R² Check   : "
+        f"{'PASS' if r2_pass else 'FAIL'}"
+    )
+
+    print(
+        f"RMSE Check : "
+        f"{'PASS' if rmse_pass else 'FAIL'}"
+    )
+
+    # ========================================================
+    # FINAL DEPLOYMENT DECISION
+    # ========================================================
+
+    decision = r2_pass and rmse_pass
 
     if decision:
-
-        print("Deployment trigger: TRUE")
-        print("Model meets the required R² threshold.")
-
+        print("\nDeployment trigger: TRUE")
+        print(
+            "Model passed all deployment "
+            "quality requirements."
+        )
     else:
+        print("\nDeployment trigger: FALSE")
+        print(
+            "Model failed one or more "
+            "deployment quality requirements."
+        )
 
-        print("Deployment trigger: FALSE")
-        print("Model does not meet the required R² threshold.")
+    print("=" * 60)
+
+    return decision
+
+    # ========================================================
+    # LOG QUALITY GATE TO MLFLOW
+    # ========================================================
+
+    mlflow.log_metric(
+        "deployment_test_r2",
+        float(r2_score),
+    )
+
+    mlflow.log_metric(
+        "deployment_test_rmse",
+        float(rmse),
+    )
+
+    mlflow.log_param(
+        "deployment_min_r2",
+        min_r2,
+    )
+
+    mlflow.log_param(
+        "deployment_max_rmse",
+        max_rmse,
+    )
+
+    mlflow.log_param(
+        "deployment_r2_pass",
+        r2_pass,
+    )
+
+    mlflow.log_param(
+        "deployment_rmse_pass",
+        rmse_pass,
+    )
+
+    mlflow.log_param(
+        "deployment_decision",
+        decision,
+    )
+
+    print("=" * 60)
 
     return decision
 
@@ -79,7 +161,6 @@ def prediction_service_loader(
     running: bool = True,
     model_name: str = "model",
 ) -> MLFlowDeploymentService:
-
     """
     Get the MLflow prediction service deployed by ZenML.
     """
@@ -99,7 +180,6 @@ def prediction_service_loader(
     )
 
     if not existing_services:
-
         raise RuntimeError(
             f"No MLflow prediction service deployed by "
             f"the '{pipeline_step_name}' step in the "
@@ -122,7 +202,6 @@ def predictor(
     service: MLFlowDeploymentService,
     data: str,
 ) -> np.ndarray:
-
     """Run inference against the deployed MLflow model."""
 
     service.start(timeout=10)
@@ -178,10 +257,10 @@ def predictor(
 @pipeline(enable_cache=False)
 def continuous_deployment_pipeline(
     min_r2: float = 0.08,
+    max_rmse: float = 1.50,
     workers: int = 1,
     timeout: int = DEFAULT_SERVICE_START_STOP_TIMEOUT,
 ):
-
     """
     Train, benchmark, tune, evaluate and
     conditionally deploy the best model.
@@ -200,7 +279,7 @@ def continuous_deployment_pipeline(
           ↓
         Evaluation
           ↓
-        Deployment Trigger
+        Deployment Quality Gate
           ↓
         MLflow Deployment
     """
@@ -234,19 +313,21 @@ def continuous_deployment_pipeline(
     # 4. Evaluate best model
     # ========================================================
 
-    mse, r2, rmse = evaluation(
+    r2, rmse, mse = evaluation(
         model,
         x_test,
         y_test,
     )
 
     # ========================================================
-    # 5. Decide whether to deploy
+    # 5. Deployment Quality Gate
     # ========================================================
 
     deployment_decision = deployment_trigger(
         r2_score=r2,
+        rmse=rmse,
         min_r2=min_r2,
+        max_rmse=max_rmse,
     )
 
     # ========================================================
@@ -270,7 +351,6 @@ def inference_pipeline(
     pipeline_name: str,
     pipeline_step_name: str,
 ):
-
     """
     Load the deployed MLflow model
     and make predictions.
@@ -290,7 +370,7 @@ def inference_pipeline(
         prediction_service_loader(
             pipeline_name=pipeline_name,
             pipeline_step_name=pipeline_step_name,
-            running=False,
+            running=True,
             model_name="model",
         )
     )

@@ -1,60 +1,169 @@
 import logging
 
 import mlflow
-import numpy as np
 import pandas as pd
+
 from model.evaluation import MSE, RMSE, R2Score
+
 from sklearn.base import RegressorMixin
+
+from typing import Tuple
 from typing_extensions import Annotated
+
 from zenml import step
 from zenml.client import Client
 
-experiment_tracker = Client().active_stack.experiment_tracker
-from typing import Tuple
+
+# ============================================================
+# MLFLOW EXPERIMENT TRACKER
+# ============================================================
+
+experiment_tracker = (
+    Client()
+    .active_stack
+    .experiment_tracker
+)
 
 
-@step(experiment_tracker=experiment_tracker.name)
+# ============================================================
+# EVALUATION STEP
+# ============================================================
+
+@step(
+    experiment_tracker=experiment_tracker.name,
+)
 def evaluation(
-    model: RegressorMixin, x_test: pd.DataFrame, y_test: pd.Series
-) -> Tuple[Annotated[float, "r2_score"], Annotated[float, "rmse"], Annotated[float, "mse"]]:
+    model: RegressorMixin,
+    x_test: pd.DataFrame,
+    y_test: pd.Series,
+) -> Tuple[
+    Annotated[float, "r2_score"],
+    Annotated[float, "rmse"],
+    Annotated[float, "mse"],
+]:
+    """
+    Evaluate the trained model on the held-out test set.
 
-    """
-    Args:
-        model: RegressorMixin
-        x_test: pd.DataFrame
-        y_test: pd.Series
+    Metrics:
+        - R²
+        - RMSE
+        - MSE
+
     Returns:
-        r2_score: float
-        rmse: float
+        r2_score: Test R² score
+        rmse: Test RMSE
+        mse: Test MSE
     """
+
     try:
-        # prediction = model.predict(x_test)
-        # evaluation = Evaluation()
-        # r2_score = evaluation.r2_score(y_test, prediction)
-        # mlflow.log_metric("r2_score", r2_score)
-        # mse = evaluation.mean_squared_error(y_test, prediction)
-        # mlflow.log_metric("mse", mse)
-        # rmse = np.sqrt(mse)
-        # mlflow.log_metric("rmse", rmse)
+
+        # ====================================================
+        # 1. GENERATE TEST PREDICTIONS
+        # ====================================================
 
         prediction = model.predict(x_test)
 
-        # Using the MSE class for mean squared error calculation
+        # ====================================================
+        # 2. CALCULATE TEST MSE
+        # ====================================================
+
         mse_class = MSE()
-        mse = mse_class.calculate_score(y_test, prediction)
-        mlflow.log_metric("mse", mse)
 
-        # Using the R2Score class for R2 score calculation
+        mse = float(
+            mse_class.calculate_score(
+                y_test,
+                prediction,
+            )
+        )
+
+        # ====================================================
+        # 3. CALCULATE TEST R²
+        # ====================================================
+
         r2_class = R2Score()
-        r2_score = r2_class.calculate_score(y_test, prediction)
-        mlflow.log_metric("r2_score", r2_score)
 
-        # Using the RMSE class for root mean squared error calculation
+        r2_score = float(
+            r2_class.calculate_score(
+                y_test,
+                prediction,
+            )
+        )
+
+        # ====================================================
+        # 4. CALCULATE TEST RMSE
+        # ====================================================
+
         rmse_class = RMSE()
-        rmse = rmse_class.calculate_score(y_test, prediction)
-        mlflow.log_metric("rmse", rmse)
-        
-        return mse, r2_score, rmse
+
+        rmse = float(
+            rmse_class.calculate_score(
+                y_test,
+                prediction,
+            )
+        )
+
+        # ====================================================
+        # 5. LOG FINAL TEST METRICS TO MLFLOW
+        # ====================================================
+
+        mlflow.log_metric(
+            "test_r2",
+            r2_score,
+        )
+
+        mlflow.log_metric(
+            "test_rmse",
+            rmse,
+        )
+
+        mlflow.log_metric(
+            "test_mse",
+            mse,
+        )
+
+        # ====================================================
+        # 6. DISPLAY FINAL TEST RESULTS
+        # ====================================================
+
+        print("\n" + "=" * 60)
+        print("FINAL TEST SET EVALUATION")
+        print("=" * 60)
+
+        print(
+            f"Test R²   : {r2_score:.6f}"
+        )
+
+        print(
+            f"Test RMSE : {rmse:.6f}"
+        )
+
+        print(
+            f"Test MSE  : {mse:.6f}"
+        )
+
+        print("=" * 60)
+
+        # ====================================================
+        # 7. RETURN METRICS
+        # ====================================================
+        #
+        # IMPORTANT:
+        # The order MUST match deployment_pipeline.py:
+        #
+        #     r2, rmse, mse = evaluation(...)
+        #
+        # ====================================================
+
+        return (
+            r2_score,
+            rmse,
+            mse,
+        )
+
     except Exception as e:
-        logging.error(e)
-        raise e
+
+        logging.error(
+            f"Model evaluation failed: {e}"
+        )
+
+        raise

@@ -3,7 +3,6 @@ import pandas as pd
 import xgboost as xgb
 
 from abc import ABC, abstractmethod
-
 from lightgbm import LGBMRegressor
 
 from sklearn.ensemble import RandomForestRegressor
@@ -37,10 +36,6 @@ def evaluate_model_cv(
         - R²
         - RMSE
         - MAE
-
-    Returns:
-        Dictionary containing mean and standard deviation
-        for all metrics.
     """
 
     kfold = KFold(
@@ -67,23 +62,18 @@ def evaluate_model_cv(
     )
 
     return {
-        # R²
         "cv_r2_mean": float(
             scores["test_r2"].mean()
         ),
         "cv_r2_std": float(
             scores["test_r2"].std()
         ),
-
-        # RMSE
         "cv_rmse_mean": float(
             -scores["test_rmse"].mean()
         ),
         "cv_rmse_std": float(
             scores["test_rmse"].std()
         ),
-
-        # MAE
         "cv_mae_mean": float(
             -scores["test_mae"].mean()
         ),
@@ -106,7 +96,10 @@ class Model(ABC):
         y_train,
         **kwargs,
     ):
-        pass
+        """
+        Train and return ONLY the fitted sklearn estimator.
+        """
+        raise NotImplementedError
 
     @abstractmethod
     def optimize_cv(
@@ -117,7 +110,7 @@ class Model(ABC):
         n_splits=DEFAULT_CV_FOLDS,
         random_state=DEFAULT_RANDOM_STATE,
     ):
-        pass
+        raise NotImplementedError
 
 
 # ============================================================
@@ -132,6 +125,12 @@ class RandomForestModel(Model):
         y_train,
         **kwargs,
     ):
+        """
+        Train RandomForestRegressor.
+
+        IMPORTANT:
+        Returns only the fitted estimator.
+        """
 
         reg = RandomForestRegressor(
             random_state=DEFAULT_RANDOM_STATE,
@@ -194,7 +193,9 @@ class RandomForestModel(Model):
             metrics,
         )
 
-        return metrics["cv_r2_mean"]
+        return float(
+            metrics["cv_r2_mean"]
+        )
 
     @staticmethod
     def _store_trial_metrics(
@@ -240,6 +241,11 @@ class LightGBMModel(Model):
         y_train,
         **kwargs,
     ):
+        """
+        Train LGBMRegressor.
+
+        Returns only the fitted estimator.
+        """
 
         reg = LGBMRegressor(
             random_state=DEFAULT_RANDOM_STATE,
@@ -310,7 +316,9 @@ class LightGBMModel(Model):
             metrics,
         )
 
-        return metrics["cv_r2_mean"]
+        return float(
+            metrics["cv_r2_mean"]
+        )
 
     @staticmethod
     def _store_trial_metrics(
@@ -356,6 +364,11 @@ class XGBoostModel(Model):
         y_train,
         **kwargs,
     ):
+        """
+        Train XGBRegressor.
+
+        Returns only the fitted estimator.
+        """
 
         reg = xgb.XGBRegressor(
             random_state=DEFAULT_RANDOM_STATE,
@@ -435,7 +448,9 @@ class XGBoostModel(Model):
             metrics,
         )
 
-        return metrics["cv_r2_mean"]
+        return float(
+            metrics["cv_r2_mean"]
+        )
 
     @staticmethod
     def _store_trial_metrics(
@@ -481,6 +496,11 @@ class LinearRegressionModel(Model):
         y_train,
         **kwargs,
     ):
+        """
+        Train LinearRegression.
+
+        Returns only the fitted estimator.
+        """
 
         reg = LinearRegression(
             **kwargs,
@@ -517,7 +537,9 @@ class LinearRegressionModel(Model):
             metrics,
         )
 
-        return metrics["cv_r2_mean"]
+        return float(
+            metrics["cv_r2_mean"]
+        )
 
     @staticmethod
     def _store_trial_metrics(
@@ -557,16 +579,6 @@ class LinearRegressionModel(Model):
 
 class HyperparameterTuner:
 
-    """
-    Performs Optuna hyperparameter optimization
-    using K-Fold Cross-Validation.
-
-    The test set is NEVER used here.
-
-    Returns:
-        Complete serializable Optuna reporting information.
-    """
-
     def __init__(
         self,
         model,
@@ -579,7 +591,6 @@ class HyperparameterTuner:
         self.model = model
         self.x_train = x_train
         self.y_train = y_train
-
         self.n_splits = n_splits
         self.random_state = random_state
 
@@ -610,7 +621,10 @@ class HyperparameterTuner:
             trial,
         ):
 
-            if trial.state != optuna.trial.TrialState.COMPLETE:
+            if (
+                trial.state
+                != optuna.trial.TrialState.COMPLETE
+            ):
                 return
 
             print(
@@ -814,11 +828,10 @@ class HyperparameterTuner:
         print("=" * 60)
 
         # ====================================================
-        # 9. RETURN COMPLETE SERIALIZABLE REPORT
+        # 9. RETURN SERIALIZABLE REPORT
         # ====================================================
 
         return {
-            # Best trial
             "best_trial_number": int(
                 best_trial.number
             ),
@@ -829,7 +842,6 @@ class HyperparameterTuner:
                 best_trial.value
             ),
 
-            # Final CV metrics
             "best_cv_r2": float(
                 cv_metrics["cv_r2_mean"]
             ),
@@ -854,7 +866,6 @@ class HyperparameterTuner:
                 cv_metrics["cv_mae_std"]
             ),
 
-            # Optuna configuration
             "n_trials": int(
                 n_trials
             ),
@@ -871,7 +882,6 @@ class HyperparameterTuner:
 
             "sampler": "TPESampler",
 
-            # Complete trial history
             "trial_history": trial_history,
         }
 
@@ -951,13 +961,10 @@ class ModelBenchmark:
             results.append(
                 {
                     "model": model_name,
-
                     "cv_r2": mean_r2,
                     "cv_r2_std": std_r2,
-
                     "cv_rmse": mean_rmse,
                     "cv_rmse_std": std_rmse,
-
                     "cv_mae": mean_mae,
                     "cv_mae_std": std_mae,
                 }

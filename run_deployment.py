@@ -3,6 +3,16 @@ from typing import cast
 import click
 from rich import print
 
+import os
+import mlflow
+
+mlflow.set_tracking_uri(
+    os.getenv(
+        "MLFLOW_TRACKING_URI",
+        "sqlite:///mlflow.db"
+    )
+)
+
 from pipelines.deployment_pipeline import (
     continuous_deployment_pipeline,
     inference_pipeline,

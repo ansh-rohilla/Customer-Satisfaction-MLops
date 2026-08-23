@@ -1,7 +1,12 @@
 import logging
+import os
+from pathlib import Path
+from typing import Any, Tuple
 
 import mlflow
 import pandas as pd
+from dotenv import load_dotenv
+from mlflow import MlflowClient
 
 from model.model_dev import (
     HyperparameterTuner,
@@ -13,24 +18,76 @@ from model.model_dev import (
     get_candidate_models,
 )
 
-from sklearn.base import RegressorMixin
-
 from zenml import step
 from zenml.client import Client
 
 
 # ============================================================
-# CONFIGURATION
+# ENVIRONMENT / MLFLOW CONFIGURATION
+# ============================================================
+
+PROJECT_ROOT = (
+    Path(__file__)
+    .resolve()
+    .parent
+    .parent
+)
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+
+# ============================================================
+# MLFLOW TRACKING URI
+# ============================================================
+
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}",
+)
+
+mlflow.set_tracking_uri(
+    MLFLOW_TRACKING_URI
+)
+
+
+print("\n" + "=" * 60)
+print("MLFLOW CONFIGURATION")
+print("=" * 60)
+
+print(
+    f"Tracking URI: "
+    f"{mlflow.get_tracking_uri()}"
+)
+
+print("=" * 60)
+
+
+# ============================================================
+# TRAINING CONFIGURATION
 # ============================================================
 
 ENABLE_FINE_TUNING = True
+
 OPTUNA_TRIALS = 10
+
 CV_FOLDS = 5
+
 RANDOM_STATE = 42
 
 
 # ============================================================
-# MLFLOW EXPERIMENT TRACKER
+# MLFLOW MODEL REGISTRY
+# ============================================================
+
+REGISTERED_MODEL_NAME = (
+    "Customer-Satisfaction-Model"
+)
+
+MODEL_ALIAS = "champion"
+
+
+# ============================================================
+# ZENML MLFLOW EXPERIMENT TRACKER
 # ============================================================
 
 experiment_tracker = (
@@ -53,19 +110,47 @@ def train_model(
     x_test: pd.DataFrame,
     y_train: pd.Series,
     y_test: pd.Series,
-) -> RegressorMixin:
+) -> Tuple[Any, str]:
 
     try:
 
         # ====================================================
-        # 1. MODEL BENCHMARKING
+        # 1. VERIFY MLFLOW CONNECTION
+        # ====================================================
+
+        print("\n" + "=" * 60)
+        print("VERIFYING MLFLOW")
+        print("=" * 60)
+
+        print(
+            f"Tracking URI: "
+            f"{mlflow.get_tracking_uri()}"
+        )
+
+        client = MlflowClient(
+            tracking_uri=(
+                mlflow.get_tracking_uri()
+            )
+        )
+
+        print(
+            "MLflow client initialized successfully."
+        )
+
+        print("=" * 60)
+
+
+        # ====================================================
+        # 2. MODEL BENCHMARKING
         # ====================================================
 
         print("\n" + "=" * 60)
         print("STARTING MODEL BENCHMARKING")
         print("=" * 60)
 
-        candidate_models = get_candidate_models()
+        candidate_models = (
+            get_candidate_models()
+        )
 
         benchmark = ModelBenchmark(
             n_splits=CV_FOLDS,
@@ -78,6 +163,11 @@ def train_model(
             y_train,
         )
 
+
+        # ====================================================
+        # 3. SORT MODELS BY CV R²
+        # ====================================================
+
         results = (
             results
             .sort_values(
@@ -89,7 +179,7 @@ def train_model(
 
 
         # ====================================================
-        # 2. DISPLAY MODEL COMPARISON
+        # 4. DISPLAY MODEL COMPARISON
         # ====================================================
 
         print("\n" + "=" * 60)
@@ -112,14 +202,17 @@ def train_model(
 
 
         # ====================================================
-        # 3. SELECT BEST MODEL
+        # 5. SELECT BEST MODEL
         # ====================================================
 
-        best_model_name = results.iloc[0]["model"]
+        best_model_name = (
+            results.iloc[0]["model"]
+        )
 
         baseline_cv_r2 = float(
             results.iloc[0]["cv_r2"]
         )
+
 
         print("\n" + "=" * 60)
 
@@ -137,7 +230,7 @@ def train_model(
 
 
         # ====================================================
-        # 4. LOG BENCHMARK RESULTS TO MLFLOW
+        # 6. LOG BENCHMARK RESULTS
         # ====================================================
 
         for _, row in results.iterrows():
@@ -174,6 +267,7 @@ def train_model(
                 float(row["cv_mae_std"]),
             )
 
+
         mlflow.log_param(
             "selected_model",
             best_model_name,
@@ -191,12 +285,7 @@ def train_model(
 
 
         # ====================================================
-        # 5. CREATE SELECTED MODEL
-        #
-        # IMPORTANT:
-        # DO NOT ENABLE MLFLOW AUTOLOGGING HERE.
-        #
-        # Optuna trains many models during optimization.
+        # 7. CREATE SELECTED MODEL
         # ====================================================
 
         if best_model_name == "lightgbm":
@@ -224,7 +313,7 @@ def train_model(
 
 
         # ====================================================
-        # 6. OPTUNA HYPERPARAMETER TUNING
+        # 8. OPTUNA HYPERPARAMETER TUNING
         # ====================================================
 
         if ENABLE_FINE_TUNING:
@@ -238,6 +327,7 @@ def train_model(
 
             print("=" * 60)
 
+
             tuner = HyperparameterTuner(
                 model=model,
                 x_train=x_train,
@@ -246,63 +336,47 @@ def train_model(
                 random_state=RANDOM_STATE,
             )
 
+
             tuning_results = tuner.optimize(
                 n_trials=OPTUNA_TRIALS,
             )
 
 
             # =================================================
-            # EXTRACT TUNING RESULTS
+            # EXTRACT RESULTS
             # =================================================
 
-            best_params = tuning_results[
-                "best_params"
-            ]
+            best_params = (
+                tuning_results["best_params"]
+            )
 
             tuned_cv_r2 = float(
-                tuning_results[
-                    "best_cv_r2"
-                ]
+                tuning_results["best_cv_r2"]
             )
 
             tuned_cv_r2_std = float(
-                tuning_results[
-                    "cv_r2_std"
-                ]
+                tuning_results["cv_r2_std"]
             )
 
             tuned_cv_rmse = float(
-                tuning_results[
-                    "cv_rmse"
-                ]
+                tuning_results["cv_rmse"]
             )
 
             tuned_cv_rmse_std = float(
-                tuning_results[
-                    "cv_rmse_std"
-                ]
+                tuning_results["cv_rmse_std"]
             )
 
             tuned_cv_mae = float(
-                tuning_results[
-                    "cv_mae"
-                ]
+                tuning_results["cv_mae"]
             )
 
             tuned_cv_mae_std = float(
-                tuning_results[
-                    "cv_mae_std"
-                ]
+                tuning_results["cv_mae_std"]
             )
 
-            # ------------------------------------------------
-            # NEW:
-            # Trial history replaces the old Optuna study.
-            # ------------------------------------------------
-
-            trial_history = tuning_results[
-                "trial_history"
-            ]
+            trial_history = (
+                tuning_results["trial_history"]
+            )
 
             best_trial_number = int(
                 tuning_results[
@@ -405,7 +479,7 @@ def train_model(
 
 
             # =================================================
-            # 7. MLFLOW OPTUNA METADATA
+            # MLFLOW OPTUNA METADATA
             # =================================================
 
             mlflow.log_param(
@@ -425,16 +499,12 @@ def train_model(
 
             mlflow.log_param(
                 "optuna_sampler",
-                tuning_results[
-                    "sampler"
-                ],
+                tuning_results["sampler"],
             )
 
             mlflow.log_param(
                 "optuna_direction",
-                tuning_results[
-                    "direction"
-                ],
+                tuning_results["direction"],
             )
 
             mlflow.log_param(
@@ -444,7 +514,7 @@ def train_model(
 
 
             # =================================================
-            # 8. MLFLOW CV METRICS
+            # CV METRICS
             # =================================================
 
             mlflow.log_metric(
@@ -484,7 +554,7 @@ def train_model(
 
 
             # =================================================
-            # 9. MLFLOW IMPROVEMENT METRICS
+            # IMPROVEMENT METRICS
             # =================================================
 
             mlflow.log_metric(
@@ -504,7 +574,7 @@ def train_model(
 
 
             # =================================================
-            # 10. LOG BEST PARAMETERS
+            # BEST PARAMETERS
             # =================================================
 
             for (
@@ -519,10 +589,7 @@ def train_model(
 
 
             # =================================================
-            # 11. LOG INDIVIDUAL OPTUNA TRIALS
-            #
-            # trial_history comes from model_dev.py.
-            # No raw Optuna Study is required.
+            # OPTUNA TRIAL HISTORY
             # =================================================
 
             print("\n" + "=" * 60)
@@ -535,13 +602,13 @@ def train_model(
                     trial["trial_number"]
                 )
 
-                trial_state = trial[
-                    "state"
-                ]
+                trial_state = (
+                    trial["state"]
+                )
 
-                trial_value = trial[
-                    "value"
-                ]
+                trial_value = (
+                    trial["value"]
+                )
 
                 if trial_value is None:
 
@@ -567,122 +634,57 @@ def train_model(
                     f"{trial['params']}"
                 )
 
-
-                # ---------------------------------------------
-                # Trial R²
-                # ---------------------------------------------
-
                 mlflow.log_metric(
                     f"optuna_trial_{trial_number}_r2",
                     trial_r2,
                 )
 
-
-                # ---------------------------------------------
-                # Trial CV R² Std
-                # ---------------------------------------------
-
-                if (
-                    trial["cv_r2_std"]
-                    is not None
-                ):
+                if trial["cv_r2_std"] is not None:
 
                     mlflow.log_metric(
                         f"optuna_trial_{trial_number}_r2_std",
                         float(
-                            trial[
-                                "cv_r2_std"
-                            ]
+                            trial["cv_r2_std"]
                         ),
                     )
 
-
-                # ---------------------------------------------
-                # Trial RMSE
-                # ---------------------------------------------
-
-                if (
-                    trial["cv_rmse"]
-                    is not None
-                ):
+                if trial["cv_rmse"] is not None:
 
                     mlflow.log_metric(
                         f"optuna_trial_{trial_number}_rmse",
                         float(
-                            trial[
-                                "cv_rmse"
-                            ]
+                            trial["cv_rmse"]
                         ),
                     )
 
-
-                # ---------------------------------------------
-                # Trial RMSE Std
-                # ---------------------------------------------
-
-                if (
-                    trial["cv_rmse_std"]
-                    is not None
-                ):
+                if trial["cv_rmse_std"] is not None:
 
                     mlflow.log_metric(
                         f"optuna_trial_{trial_number}_rmse_std",
                         float(
-                            trial[
-                                "cv_rmse_std"
-                            ]
+                            trial["cv_rmse_std"]
                         ),
                     )
 
-
-                # ---------------------------------------------
-                # Trial MAE
-                # ---------------------------------------------
-
-                if (
-                    trial["cv_mae"]
-                    is not None
-                ):
+                if trial["cv_mae"] is not None:
 
                     mlflow.log_metric(
                         f"optuna_trial_{trial_number}_mae",
                         float(
-                            trial[
-                                "cv_mae"
-                            ]
+                            trial["cv_mae"]
                         ),
                     )
 
-
-                # ---------------------------------------------
-                # Trial MAE Std
-                # ---------------------------------------------
-
-                if (
-                    trial["cv_mae_std"]
-                    is not None
-                ):
+                if trial["cv_mae_std"] is not None:
 
                     mlflow.log_metric(
                         f"optuna_trial_{trial_number}_mae_std",
                         float(
-                            trial[
-                                "cv_mae_std"
-                            ]
+                            trial["cv_mae_std"]
                         ),
                     )
 
-
-                # ---------------------------------------------
-                # Trial Duration
-                # ---------------------------------------------
-
-                if (
-                    trial[
-                        "duration_seconds"
-                    ]
-                    is not None
-                ):
+                if trial["duration_seconds"] is not None:
 
                     mlflow.log_metric(
                         f"optuna_trial_{trial_number}_duration_seconds",
@@ -696,23 +698,8 @@ def train_model(
             print("=" * 60)
 
 
-            # =================================================
-            # 12. LOG BEST TRIAL INFORMATION
-            # =================================================
-
-            mlflow.log_param(
-                "optuna_best_trial_number",
-                best_trial_number,
-            )
-
-            mlflow.log_metric(
-                "optuna_best_trial_r2",
-                optuna_best_value,
-            )
-
-
         # ====================================================
-        # 13. FINE TUNING DISABLED
+        # 9. FINE TUNING DISABLED
         # ====================================================
 
         else:
@@ -721,6 +708,36 @@ def train_model(
 
             tuned_cv_r2 = (
                 baseline_cv_r2
+            )
+
+            tuned_cv_r2_std = float(
+                results.iloc[0][
+                    "cv_r2_std"
+                ]
+            )
+
+            tuned_cv_rmse = float(
+                results.iloc[0][
+                    "cv_rmse"
+                ]
+            )
+
+            tuned_cv_rmse_std = float(
+                results.iloc[0][
+                    "cv_rmse_std"
+                ]
+            )
+
+            tuned_cv_mae = float(
+                results.iloc[0][
+                    "cv_mae"
+                ]
+            )
+
+            tuned_cv_mae_std = float(
+                results.iloc[0][
+                    "cv_mae_std"
+                ]
             )
 
             cv_r2_improvement = 0.0
@@ -734,35 +751,52 @@ def train_model(
 
 
         # ====================================================
-        # 14. ENABLE MLFLOW AUTOLOGGING
-        #
-        # ONLY FOR FINAL MODEL.
+        # 10. ENABLE MLFLOW AUTOLOGGING
         # ====================================================
 
         print("\n" + "=" * 60)
         print("ENABLING MLFLOW AUTOLOGGING")
         print("=" * 60)
 
+        print(
+            f"Registered Model: "
+            f"{REGISTERED_MODEL_NAME}"
+        )
+
+
         if best_model_name == "lightgbm":
 
-            mlflow.lightgbm.autolog()
+            mlflow.lightgbm.autolog(
+                registered_model_name=(
+                    REGISTERED_MODEL_NAME
+                )
+            )
 
         elif best_model_name == "xgboost":
 
-            mlflow.xgboost.autolog()
+            mlflow.xgboost.autolog(
+                registered_model_name=(
+                    REGISTERED_MODEL_NAME
+                )
+            )
 
         else:
 
-            mlflow.sklearn.autolog()
+            mlflow.sklearn.autolog(
+                registered_model_name=(
+                    REGISTERED_MODEL_NAME
+                )
+            )
 
 
         # ====================================================
-        # 15. TRAIN FINAL MODEL
+        # 11. TRAIN FINAL MODEL
         # ====================================================
 
         print("\n" + "=" * 60)
         print("TRAINING FINAL MODEL")
         print("=" * 60)
+
 
         if ENABLE_FINE_TUNING:
 
@@ -781,7 +815,246 @@ def train_model(
 
 
         # ====================================================
-        # 16. FINAL MODEL INFORMATION
+        # 12. VERIFY ACTIVE MLFLOW RUN
+        # ====================================================
+
+        active_run = mlflow.active_run()
+
+        if active_run is None:
+
+            raise RuntimeError(
+                "No active MLflow run found "
+                "after final model training."
+            )
+
+        run_id = (
+            active_run.info.run_id
+        )
+
+
+        print("\n" + "=" * 60)
+        print("MLFLOW RUN INFORMATION")
+        print("=" * 60)
+
+        print(
+            f"Run ID: {run_id}"
+        )
+
+        print(
+            f"Tracking URI: "
+            f"{mlflow.get_tracking_uri()}"
+        )
+
+        print("=" * 60)
+
+
+        # ====================================================
+        # 13. CREATE TRAINING REFERENCE PROFILE
+        # ====================================================
+
+        print("\n" + "=" * 60)
+        print("CREATING TRAINING REFERENCE PROFILE")
+        print("=" * 60)
+
+        reference_profile = {}
+
+
+        for column in x_train.columns:
+
+            numeric_values = pd.to_numeric(
+                x_train[column],
+                errors="coerce",
+            ).dropna()
+
+            if numeric_values.empty:
+                continue
+
+            reference_profile[column] = (
+                numeric_values
+                .astype(float)
+                .tolist()
+            )
+
+
+        # ====================================================
+        # 14. LOG REFERENCE PROFILE
+        # ====================================================
+
+        mlflow.log_dict(
+            reference_profile,
+            "monitoring/reference_profile.json",
+        )
+
+        print(
+            "Training reference profile logged:"
+        )
+
+        print(
+            "monitoring/reference_profile.json"
+        )
+
+        print(
+            f"Reference features: "
+            f"{len(reference_profile)}"
+        )
+
+
+        for feature, values in (
+            reference_profile.items()
+        ):
+
+            print(
+                f"  {feature:<35}"
+                f" samples={len(values)}"
+            )
+
+        print("=" * 60)
+
+
+        # ====================================================
+        # 15. LOG MODEL METADATA
+        # ====================================================
+
+        mlflow.set_tag(
+            "model_name",
+            best_model_name,
+        )
+
+        mlflow.set_tag(
+            "model_registry_name",
+            REGISTERED_MODEL_NAME,
+        )
+
+        # IMPORTANT:
+        # Training creates a CANDIDATE.
+        # Deployment pipeline decides whether
+        # the candidate becomes CHAMPION.
+
+        mlflow.set_tag(
+            "model_lifecycle",
+            "candidate",
+        )
+
+        mlflow.log_param(
+            "registered_model_name",
+            REGISTERED_MODEL_NAME,
+        )
+
+        mlflow.log_param(
+            "model_alias",
+            MODEL_ALIAS,
+        )
+
+        mlflow.log_metric(
+            "final_cv_r2",
+            float(tuned_cv_r2),
+        )
+
+        mlflow.log_metric(
+            "final_cv_rmse",
+            float(tuned_cv_rmse),
+        )
+
+        mlflow.log_metric(
+            "final_cv_mae",
+            float(tuned_cv_mae),
+        )
+
+
+        # ====================================================
+        # 16. FIND EXACT REGISTERED VERSION FOR THIS RUN
+        # ====================================================
+
+        print("\n" + "=" * 60)
+        print("CHECKING MLFLOW MODEL REGISTRY")
+        print("=" * 60)
+
+        model_versions = (
+            client.search_model_versions(
+                filter_string=(
+                    f"name='{REGISTERED_MODEL_NAME}'"
+                )
+            )
+        )
+
+        matching_versions = [
+            version
+            for version in model_versions
+            if version.run_id == run_id
+        ]
+
+        if not matching_versions:
+            raise RuntimeError(
+                "The final model was not found "
+                "in the MLflow Model Registry.\n"
+                f"Registered model: "
+                f"{REGISTERED_MODEL_NAME}\n"
+                f"Run ID: {run_id}\n"
+                f"Tracking URI: "
+                f"{mlflow.get_tracking_uri()}"
+            )
+
+        candidate_version = max(
+            matching_versions,
+            key=lambda version: int(
+                version.version
+            ),
+        )
+
+        # IMPORTANT:
+        # ZenML expects this output to be a string.
+        candidate_version_number = str(
+            candidate_version.version
+        )
+
+        print(
+            f"Registered Model: "
+            f"{REGISTERED_MODEL_NAME}"
+        )
+
+        print(
+            f"Candidate Version: "
+            f"{candidate_version_number}"
+        )
+
+        print(
+            f"Training Run ID: "
+            f"{run_id}"
+        )
+
+        print(
+            "Lifecycle: candidate"
+        )
+
+        print("=" * 60)
+
+        # ====================================================
+        # 17. TAG REGISTERED MODEL VERSION
+        # ====================================================
+
+        client.set_model_version_tag(
+            name=REGISTERED_MODEL_NAME,
+            version=candidate_version_number,
+            key="lifecycle",
+            value="candidate",
+        )
+
+        client.set_model_version_tag(
+            name=REGISTERED_MODEL_NAME,
+            version=candidate_version_number,
+            key="model_type",
+            value=str(best_model_name),
+        )
+
+        client.set_model_version_tag(
+            name=REGISTERED_MODEL_NAME,
+            version=candidate_version_number,
+            key="training_run_id",
+            value=run_id,
+        )
+
+        # ====================================================
+        # 18. FINAL MODEL INFORMATION
         # ====================================================
 
         print("\n" + "=" * 60)
@@ -791,6 +1064,25 @@ def train_model(
         print(
             f"Model: "
             f"{best_model_name}"
+        )
+
+        print(
+            f"MLflow Registered Model: "
+            f"{REGISTERED_MODEL_NAME}"
+        )
+
+        print(
+            f"MLflow Candidate Version: "
+            f"{candidate_version_number}"
+        )
+
+        print(
+            "MLflow Lifecycle: candidate"
+        )
+
+        print(
+            "MLflow Alias: "
+            "NOT ASSIGNED BY TRAINING"
         )
 
         print(
@@ -827,18 +1119,19 @@ def train_model(
 
         print("=" * 60)
 
-
         # ====================================================
-        # 17. RETURN FINAL MODEL
+        # 19. RETURN MODEL + CANDIDATE VERSION
         # ====================================================
 
-        return trained_model
+        return (
+            trained_model,
+            candidate_version_number,
+        )
 
+    except Exception:
 
-    except Exception as e:
-
-        logging.error(
-            f"Model training failed: {e}"
+        logging.exception(
+            "Model training failed."
         )
 
         raise

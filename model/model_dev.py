@@ -8,7 +8,6 @@ from lightgbm import LGBMRegressor
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
-from sklearn.base import clone
 from sklearn.model_selection import KFold, cross_validate
 
 
@@ -57,7 +56,7 @@ def evaluate_model_cv(
     }
 
     scores = cross_validate(
-        clone(model),
+        model,
         x_train,
         y_train,
         cv=kfold,
@@ -68,38 +67,29 @@ def evaluate_model_cv(
     )
 
     return {
-        # -----------------------------
         # R²
-        # -----------------------------
-        "cv_r2_mean": scores[
-            "test_r2"
-        ].mean(),
+        "cv_r2_mean": float(
+            scores["test_r2"].mean()
+        ),
+        "cv_r2_std": float(
+            scores["test_r2"].std()
+        ),
 
-        "cv_r2_std": scores[
-            "test_r2"
-        ].std(),
-
-        # -----------------------------
         # RMSE
-        # -----------------------------
-        "cv_rmse_mean": -scores[
-            "test_rmse"
-        ].mean(),
+        "cv_rmse_mean": float(
+            -scores["test_rmse"].mean()
+        ),
+        "cv_rmse_std": float(
+            scores["test_rmse"].std()
+        ),
 
-        "cv_rmse_std": scores[
-            "test_rmse"
-        ].std(),
-
-        # -----------------------------
         # MAE
-        # -----------------------------
-        "cv_mae_mean": -scores[
-            "test_mae"
-        ].mean(),
-
-        "cv_mae_std": scores[
-            "test_mae"
-        ].std(),
+        "cv_mae_mean": float(
+            -scores["test_mae"].mean()
+        ),
+        "cv_mae_std": float(
+            scores["test_mae"].std()
+        ),
     }
 
 
@@ -165,10 +155,6 @@ class RandomForestModel(Model):
         random_state=DEFAULT_RANDOM_STATE,
     ):
 
-        # -----------------------------
-        # Hyperparameters
-        # -----------------------------
-
         n_estimators = trial.suggest_int(
             "n_estimators",
             100,
@@ -195,10 +181,6 @@ class RandomForestModel(Model):
             min_samples_split=min_samples_split,
         )
 
-        # -----------------------------
-        # Cross-validation
-        # -----------------------------
-
         metrics = evaluate_model_cv(
             model,
             x_train,
@@ -207,23 +189,43 @@ class RandomForestModel(Model):
             random_state=random_state,
         )
 
-        # Store metrics inside Optuna trial
+        self._store_trial_metrics(
+            trial,
+            metrics,
+        )
+
+        return metrics["cv_r2_mean"]
+
+    @staticmethod
+    def _store_trial_metrics(
+        trial,
+        metrics,
+    ):
+
         trial.set_user_attr(
             "cv_r2_std",
-            metrics["cv_r2_std"],
+            float(metrics["cv_r2_std"]),
         )
 
         trial.set_user_attr(
             "cv_rmse",
-            metrics["cv_rmse_mean"],
+            float(metrics["cv_rmse_mean"]),
+        )
+
+        trial.set_user_attr(
+            "cv_rmse_std",
+            float(metrics["cv_rmse_std"]),
         )
 
         trial.set_user_attr(
             "cv_mae",
-            metrics["cv_mae_mean"],
+            float(metrics["cv_mae_mean"]),
         )
 
-        return metrics["cv_r2_mean"]
+        trial.set_user_attr(
+            "cv_mae_std",
+            float(metrics["cv_mae_std"]),
+        )
 
 
 # ============================================================
@@ -303,22 +305,43 @@ class LightGBMModel(Model):
             random_state=random_state,
         )
 
+        self._store_trial_metrics(
+            trial,
+            metrics,
+        )
+
+        return metrics["cv_r2_mean"]
+
+    @staticmethod
+    def _store_trial_metrics(
+        trial,
+        metrics,
+    ):
+
         trial.set_user_attr(
             "cv_r2_std",
-            metrics["cv_r2_std"],
+            float(metrics["cv_r2_std"]),
         )
 
         trial.set_user_attr(
             "cv_rmse",
-            metrics["cv_rmse_mean"],
+            float(metrics["cv_rmse_mean"]),
+        )
+
+        trial.set_user_attr(
+            "cv_rmse_std",
+            float(metrics["cv_rmse_std"]),
         )
 
         trial.set_user_attr(
             "cv_mae",
-            metrics["cv_mae_mean"],
+            float(metrics["cv_mae_mean"]),
         )
 
-        return metrics["cv_r2_mean"]
+        trial.set_user_attr(
+            "cv_mae_std",
+            float(metrics["cv_mae_std"]),
+        )
 
 
 # ============================================================
@@ -407,22 +430,43 @@ class XGBoostModel(Model):
             random_state=random_state,
         )
 
+        self._store_trial_metrics(
+            trial,
+            metrics,
+        )
+
+        return metrics["cv_r2_mean"]
+
+    @staticmethod
+    def _store_trial_metrics(
+        trial,
+        metrics,
+    ):
+
         trial.set_user_attr(
             "cv_r2_std",
-            metrics["cv_r2_std"],
+            float(metrics["cv_r2_std"]),
         )
 
         trial.set_user_attr(
             "cv_rmse",
-            metrics["cv_rmse_mean"],
+            float(metrics["cv_rmse_mean"]),
+        )
+
+        trial.set_user_attr(
+            "cv_rmse_std",
+            float(metrics["cv_rmse_std"]),
         )
 
         trial.set_user_attr(
             "cv_mae",
-            metrics["cv_mae_mean"],
+            float(metrics["cv_mae_mean"]),
         )
 
-        return metrics["cv_r2_mean"]
+        trial.set_user_attr(
+            "cv_mae_std",
+            float(metrics["cv_mae_std"]),
+        )
 
 
 # ============================================================
@@ -468,22 +512,43 @@ class LinearRegressionModel(Model):
             random_state=random_state,
         )
 
+        self._store_trial_metrics(
+            trial,
+            metrics,
+        )
+
+        return metrics["cv_r2_mean"]
+
+    @staticmethod
+    def _store_trial_metrics(
+        trial,
+        metrics,
+    ):
+
         trial.set_user_attr(
             "cv_r2_std",
-            metrics["cv_r2_std"],
+            float(metrics["cv_r2_std"]),
         )
 
         trial.set_user_attr(
             "cv_rmse",
-            metrics["cv_rmse_mean"],
+            float(metrics["cv_rmse_mean"]),
+        )
+
+        trial.set_user_attr(
+            "cv_rmse_std",
+            float(metrics["cv_rmse_std"]),
         )
 
         trial.set_user_attr(
             "cv_mae",
-            metrics["cv_mae_mean"],
+            float(metrics["cv_mae_mean"]),
         )
 
-        return metrics["cv_r2_mean"]
+        trial.set_user_attr(
+            "cv_mae_std",
+            float(metrics["cv_mae_std"]),
+        )
 
 
 # ============================================================
@@ -496,8 +561,10 @@ class HyperparameterTuner:
     Performs Optuna hyperparameter optimization
     using K-Fold Cross-Validation.
 
-    IMPORTANT:
-    The test set is never used here.
+    The test set is NEVER used here.
+
+    Returns:
+        Complete serializable Optuna reporting information.
     """
 
     def __init__(
@@ -516,7 +583,6 @@ class HyperparameterTuner:
         self.n_splits = n_splits
         self.random_state = random_state
 
-
     def optimize(
         self,
         n_trials=30,
@@ -526,10 +592,14 @@ class HyperparameterTuner:
         # 1. CREATE OPTUNA STUDY
         # ====================================================
 
-        study = optuna.create_study(
-            direction="maximize",
+        sampler = optuna.samplers.TPESampler(
+            seed=self.random_state,
         )
 
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=sampler,
+        )
 
         # ====================================================
         # 2. OPTUNA CALLBACK
@@ -550,7 +620,6 @@ class HyperparameterTuner:
                 f"{study.best_value:.4f}"
             )
 
-
         # ====================================================
         # 3. RUN OPTUNA
         # ====================================================
@@ -569,13 +638,15 @@ class HyperparameterTuner:
             ],
         )
 
-
         # ====================================================
-        # 4. BEST PARAMETERS
+        # 4. BEST TRIAL
         # ====================================================
 
-        best_params = study.best_trial.params
+        best_trial = study.best_trial
 
+        best_params = dict(
+            best_trial.params
+        )
 
         # ====================================================
         # 5. CREATE BEST MODEL
@@ -586,7 +657,6 @@ class HyperparameterTuner:
             self.y_train,
             **best_params,
         )
-
 
         # ====================================================
         # 6. FINAL CV EVALUATION
@@ -600,14 +670,111 @@ class HyperparameterTuner:
             random_state=self.random_state,
         )
 
+        # ====================================================
+        # 7. BUILD TRIAL HISTORY
+        # ====================================================
+
+        trial_history = []
+
+        for trial in study.trials:
+
+            trial_record = {
+                "trial_number": int(
+                    trial.number
+                ),
+
+                "state": trial.state.name,
+
+                "value": (
+                    float(trial.value)
+                    if trial.value is not None
+                    else None
+                ),
+
+                "params": dict(
+                    trial.params
+                ),
+
+                "cv_r2_std": (
+                    float(
+                        trial.user_attrs[
+                            "cv_r2_std"
+                        ]
+                    )
+                    if "cv_r2_std"
+                    in trial.user_attrs
+                    else None
+                ),
+
+                "cv_rmse": (
+                    float(
+                        trial.user_attrs[
+                            "cv_rmse"
+                        ]
+                    )
+                    if "cv_rmse"
+                    in trial.user_attrs
+                    else None
+                ),
+
+                "cv_rmse_std": (
+                    float(
+                        trial.user_attrs[
+                            "cv_rmse_std"
+                        ]
+                    )
+                    if "cv_rmse_std"
+                    in trial.user_attrs
+                    else None
+                ),
+
+                "cv_mae": (
+                    float(
+                        trial.user_attrs[
+                            "cv_mae"
+                        ]
+                    )
+                    if "cv_mae"
+                    in trial.user_attrs
+                    else None
+                ),
+
+                "cv_mae_std": (
+                    float(
+                        trial.user_attrs[
+                            "cv_mae_std"
+                        ]
+                    )
+                    if "cv_mae_std"
+                    in trial.user_attrs
+                    else None
+                ),
+
+                "duration_seconds": (
+                    float(
+                        trial.duration.total_seconds()
+                    )
+                    if trial.duration is not None
+                    else None
+                ),
+            }
+
+            trial_history.append(
+                trial_record
+            )
 
         # ====================================================
-        # 7. PRINT FINAL OPTUNA RESULTS
+        # 8. FINAL OPTUNA RESULTS
         # ====================================================
 
         print("\n" + "=" * 60)
         print("OPTUNA FINAL CV RESULTS")
         print("=" * 60)
+
+        print(
+            f"Best Trial       : "
+            f"{best_trial.number + 1}"
+        )
 
         print(
             f"Best CV R²       : "
@@ -646,43 +813,66 @@ class HyperparameterTuner:
 
         print("=" * 60)
 
-
         # ====================================================
-        # 8. RETURN COMPLETE RESULTS
+        # 9. RETURN COMPLETE SERIALIZABLE REPORT
         # ====================================================
 
         return {
+            # Best trial
+            "best_trial_number": int(
+                best_trial.number
+            ),
+
             "best_params": best_params,
 
-            "best_cv_r2": cv_metrics[
-                "cv_r2_mean"
-            ],
+            "optuna_best_value": float(
+                best_trial.value
+            ),
 
-            "cv_r2_std": cv_metrics[
-                "cv_r2_std"
-            ],
+            # Final CV metrics
+            "best_cv_r2": float(
+                cv_metrics["cv_r2_mean"]
+            ),
 
-            "cv_rmse": cv_metrics[
-                "cv_rmse_mean"
-            ],
+            "cv_r2_std": float(
+                cv_metrics["cv_r2_std"]
+            ),
 
-            "cv_rmse_std": cv_metrics[
-                "cv_rmse_std"
-            ],
+            "cv_rmse": float(
+                cv_metrics["cv_rmse_mean"]
+            ),
 
-            "cv_mae": cv_metrics[
-                "cv_mae_mean"
-            ],
+            "cv_rmse_std": float(
+                cv_metrics["cv_rmse_std"]
+            ),
 
-            "cv_mae_std": cv_metrics[
-                "cv_mae_std"
-            ],
+            "cv_mae": float(
+                cv_metrics["cv_mae_mean"]
+            ),
 
-            "n_trials": n_trials,
+            "cv_mae_std": float(
+                cv_metrics["cv_mae_std"]
+            ),
 
-            "n_splits": self.n_splits,
+            # Optuna configuration
+            "n_trials": int(
+                n_trials
+            ),
 
-            "study": study,
+            "n_splits": int(
+                self.n_splits
+            ),
+
+            "random_state": int(
+                self.random_state
+            ),
+
+            "direction": "maximize",
+
+            "sampler": "TPESampler",
+
+            # Complete trial history
+            "trial_history": trial_history,
         }
 
 
@@ -701,7 +891,6 @@ class ModelBenchmark:
         self.n_splits = n_splits
         self.random_state = random_state
 
-
     def compare_models(
         self,
         models,
@@ -711,13 +900,11 @@ class ModelBenchmark:
 
         results = []
 
-
         for model_name, model in models.items():
 
             print(
                 f"\nBenchmarking {model_name}..."
             )
-
 
             metrics = evaluate_model_cv(
                 model,
@@ -726,7 +913,6 @@ class ModelBenchmark:
                 n_splits=self.n_splits,
                 random_state=self.random_state,
             )
-
 
             mean_r2 = metrics[
                 "cv_r2_mean"
@@ -752,7 +938,6 @@ class ModelBenchmark:
                 "cv_mae_std"
             ]
 
-
             print(
                 f"{model_name} → "
                 f"R²={mean_r2:.4f} "
@@ -763,25 +948,20 @@ class ModelBenchmark:
                 f"± {std_mae:.4f}"
             )
 
-
             results.append(
                 {
                     "model": model_name,
 
                     "cv_r2": mean_r2,
-
                     "cv_r2_std": std_r2,
 
                     "cv_rmse": mean_rmse,
-
                     "cv_rmse_std": std_rmse,
 
                     "cv_mae": mean_mae,
-
                     "cv_mae_std": std_mae,
                 }
             )
-
 
         # ====================================================
         # SORT BY R²
@@ -801,7 +981,6 @@ class ModelBenchmark:
                 drop=True
             )
         )
-
 
         return results_df
 

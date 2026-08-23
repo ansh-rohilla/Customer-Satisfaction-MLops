@@ -25,7 +25,6 @@ from zenml.client import Client
 
 ENABLE_FINE_TUNING = True
 OPTUNA_TRIALS = 10
-
 CV_FOLDS = 5
 RANDOM_STATE = 42
 
@@ -79,7 +78,6 @@ def train_model(
             y_train,
         )
 
-        # Make sure best model is first
         results = (
             results
             .sort_values(
@@ -105,7 +103,9 @@ def train_model(
                     "cv_r2",
                     "cv_r2_std",
                     "cv_rmse",
+                    "cv_rmse_std",
                     "cv_mae",
+                    "cv_mae_std",
                 ]
             ].to_string(index=False)
         )
@@ -122,14 +122,17 @@ def train_model(
         )
 
         print("\n" + "=" * 60)
+
         print(
             f"BEST MODEL SELECTED: "
             f"{best_model_name}"
         )
+
         print(
             f"BASELINE CV R²: "
             f"{baseline_cv_r2:.4f}"
         )
+
         print("=" * 60)
 
 
@@ -157,8 +160,18 @@ def train_model(
             )
 
             mlflow.log_metric(
+                f"{model_name}_cv_rmse_std",
+                float(row["cv_rmse_std"]),
+            )
+
+            mlflow.log_metric(
                 f"{model_name}_cv_mae",
                 float(row["cv_mae"]),
+            )
+
+            mlflow.log_metric(
+                f"{model_name}_cv_mae_std",
+                float(row["cv_mae_std"]),
             )
 
         mlflow.log_param(
@@ -183,9 +196,7 @@ def train_model(
         # IMPORTANT:
         # DO NOT ENABLE MLFLOW AUTOLOGGING HERE.
         #
-        # Optuna will train many models.
-        # Enabling autologging here can cause MLflow
-        # parameter conflicts between trials.
+        # Optuna trains many models during optimization.
         # ====================================================
 
         if best_model_name == "lightgbm":
@@ -207,7 +218,8 @@ def train_model(
         else:
 
             raise ValueError(
-                f"Unsupported model: {best_model_name}"
+                f"Unsupported model: "
+                f"{best_model_name}"
             )
 
 
@@ -218,10 +230,12 @@ def train_model(
         if ENABLE_FINE_TUNING:
 
             print("\n" + "=" * 60)
+
             print(
                 f"STARTING OPTUNA TUNING "
                 f"FOR {best_model_name}"
             )
+
             print("=" * 60)
 
             tuner = HyperparameterTuner(
@@ -236,42 +250,76 @@ def train_model(
                 n_trials=OPTUNA_TRIALS,
             )
 
-            # ------------------------------------------------
-            # Extract tuning results
-            # ------------------------------------------------
+
+            # =================================================
+            # EXTRACT TUNING RESULTS
+            # =================================================
 
             best_params = tuning_results[
                 "best_params"
             ]
 
             tuned_cv_r2 = float(
-                tuning_results["best_cv_r2"]
+                tuning_results[
+                    "best_cv_r2"
+                ]
             )
 
             tuned_cv_r2_std = float(
-                tuning_results["cv_r2_std"]
+                tuning_results[
+                    "cv_r2_std"
+                ]
             )
 
             tuned_cv_rmse = float(
-                tuning_results["cv_rmse"]
+                tuning_results[
+                    "cv_rmse"
+                ]
             )
 
             tuned_cv_rmse_std = float(
-                tuning_results["cv_rmse_std"]
+                tuning_results[
+                    "cv_rmse_std"
+                ]
             )
 
             tuned_cv_mae = float(
-                tuning_results["cv_mae"]
+                tuning_results[
+                    "cv_mae"
+                ]
             )
 
             tuned_cv_mae_std = float(
-                tuning_results["cv_mae_std"]
+                tuning_results[
+                    "cv_mae_std"
+                ]
+            )
+
+            # ------------------------------------------------
+            # NEW:
+            # Trial history replaces the old Optuna study.
+            # ------------------------------------------------
+
+            trial_history = tuning_results[
+                "trial_history"
+            ]
+
+            best_trial_number = int(
+                tuning_results[
+                    "best_trial_number"
+                ]
+            )
+
+            optuna_best_value = float(
+                tuning_results[
+                    "optuna_best_value"
+                ]
             )
 
 
-            # ------------------------------------------------
-            # Calculate improvement
-            # ------------------------------------------------
+            # =================================================
+            # CALCULATE IMPROVEMENT
+            # =================================================
 
             cv_r2_improvement = (
                 tuned_cv_r2
@@ -291,7 +339,7 @@ def train_model(
 
 
             # =================================================
-            # DISPLAY OPTUNA RESULTS
+            # OPTUNA REPORT
             # =================================================
 
             print("\n" + "=" * 60)
@@ -344,6 +392,11 @@ def train_model(
             )
 
             print(
+                f"Best Trial     : "
+                f"{best_trial_number + 1}"
+            )
+
+            print(
                 f"Best Parameters: "
                 f"{best_params}"
             )
@@ -352,7 +405,7 @@ def train_model(
 
 
             # =================================================
-            # LOG OPTUNA INFORMATION TO MLFLOW
+            # 7. MLFLOW OPTUNA METADATA
             # =================================================
 
             mlflow.log_param(
@@ -370,10 +423,29 @@ def train_model(
                 CV_FOLDS,
             )
 
+            mlflow.log_param(
+                "optuna_sampler",
+                tuning_results[
+                    "sampler"
+                ],
+            )
 
-            # ------------------------------------------------
-            # CV METRICS
-            # ------------------------------------------------
+            mlflow.log_param(
+                "optuna_direction",
+                tuning_results[
+                    "direction"
+                ],
+            )
+
+            mlflow.log_param(
+                "optuna_best_trial_number",
+                best_trial_number,
+            )
+
+
+            # =================================================
+            # 8. MLFLOW CV METRICS
+            # =================================================
 
             mlflow.log_metric(
                 "baseline_cv_r2",
@@ -411,9 +483,9 @@ def train_model(
             )
 
 
-            # ------------------------------------------------
-            # Improvement metrics
-            # ------------------------------------------------
+            # =================================================
+            # 9. MLFLOW IMPROVEMENT METRICS
+            # =================================================
 
             mlflow.log_metric(
                 "cv_r2_improvement",
@@ -425,15 +497,235 @@ def train_model(
                 cv_r2_improvement_pct,
             )
 
-        else:
+            mlflow.log_metric(
+                "optuna_best_trial_r2",
+                optuna_best_value,
+            )
+
 
             # =================================================
-            # FINE TUNING DISABLED
+            # 10. LOG BEST PARAMETERS
             # =================================================
+
+            for (
+                param_name,
+                param_value,
+            ) in best_params.items():
+
+                mlflow.log_param(
+                    f"tuned_{param_name}",
+                    param_value,
+                )
+
+
+            # =================================================
+            # 11. LOG INDIVIDUAL OPTUNA TRIALS
+            #
+            # trial_history comes from model_dev.py.
+            # No raw Optuna Study is required.
+            # =================================================
+
+            print("\n" + "=" * 60)
+            print("OPTUNA TRIAL SUMMARY")
+            print("=" * 60)
+
+            for trial in trial_history:
+
+                trial_number = int(
+                    trial["trial_number"]
+                )
+
+                trial_state = trial[
+                    "state"
+                ]
+
+                trial_value = trial[
+                    "value"
+                ]
+
+                if trial_value is None:
+
+                    print(
+                        f"Trial "
+                        f"{trial_number + 1:02d} "
+                        f"| State: "
+                        f"{trial_state}"
+                    )
+
+                    continue
+
+                trial_r2 = float(
+                    trial_value
+                )
+
+                print(
+                    f"Trial "
+                    f"{trial_number + 1:02d} "
+                    f"| R²: "
+                    f"{trial_r2:.4f} "
+                    f"| Params: "
+                    f"{trial['params']}"
+                )
+
+
+                # ---------------------------------------------
+                # Trial R²
+                # ---------------------------------------------
+
+                mlflow.log_metric(
+                    f"optuna_trial_{trial_number}_r2",
+                    trial_r2,
+                )
+
+
+                # ---------------------------------------------
+                # Trial CV R² Std
+                # ---------------------------------------------
+
+                if (
+                    trial["cv_r2_std"]
+                    is not None
+                ):
+
+                    mlflow.log_metric(
+                        f"optuna_trial_{trial_number}_r2_std",
+                        float(
+                            trial[
+                                "cv_r2_std"
+                            ]
+                        ),
+                    )
+
+
+                # ---------------------------------------------
+                # Trial RMSE
+                # ---------------------------------------------
+
+                if (
+                    trial["cv_rmse"]
+                    is not None
+                ):
+
+                    mlflow.log_metric(
+                        f"optuna_trial_{trial_number}_rmse",
+                        float(
+                            trial[
+                                "cv_rmse"
+                            ]
+                        ),
+                    )
+
+
+                # ---------------------------------------------
+                # Trial RMSE Std
+                # ---------------------------------------------
+
+                if (
+                    trial["cv_rmse_std"]
+                    is not None
+                ):
+
+                    mlflow.log_metric(
+                        f"optuna_trial_{trial_number}_rmse_std",
+                        float(
+                            trial[
+                                "cv_rmse_std"
+                            ]
+                        ),
+                    )
+
+
+                # ---------------------------------------------
+                # Trial MAE
+                # ---------------------------------------------
+
+                if (
+                    trial["cv_mae"]
+                    is not None
+                ):
+
+                    mlflow.log_metric(
+                        f"optuna_trial_{trial_number}_mae",
+                        float(
+                            trial[
+                                "cv_mae"
+                            ]
+                        ),
+                    )
+
+
+                # ---------------------------------------------
+                # Trial MAE Std
+                # ---------------------------------------------
+
+                if (
+                    trial["cv_mae_std"]
+                    is not None
+                ):
+
+                    mlflow.log_metric(
+                        f"optuna_trial_{trial_number}_mae_std",
+                        float(
+                            trial[
+                                "cv_mae_std"
+                            ]
+                        ),
+                    )
+
+
+                # ---------------------------------------------
+                # Trial Duration
+                # ---------------------------------------------
+
+                if (
+                    trial[
+                        "duration_seconds"
+                    ]
+                    is not None
+                ):
+
+                    mlflow.log_metric(
+                        f"optuna_trial_{trial_number}_duration_seconds",
+                        float(
+                            trial[
+                                "duration_seconds"
+                            ]
+                        ),
+                    )
+
+            print("=" * 60)
+
+
+            # =================================================
+            # 12. LOG BEST TRIAL INFORMATION
+            # =================================================
+
+            mlflow.log_param(
+                "optuna_best_trial_number",
+                best_trial_number,
+            )
+
+            mlflow.log_metric(
+                "optuna_best_trial_r2",
+                optuna_best_value,
+            )
+
+
+        # ====================================================
+        # 13. FINE TUNING DISABLED
+        # ====================================================
+
+        else:
 
             best_params = {}
 
-            tuned_cv_r2 = baseline_cv_r2
+            tuned_cv_r2 = (
+                baseline_cv_r2
+            )
+
+            cv_r2_improvement = 0.0
+
+            cv_r2_improvement_pct = 0.0
 
             mlflow.log_param(
                 "optuna_enabled",
@@ -442,9 +734,9 @@ def train_model(
 
 
         # ====================================================
-        # 7. ENABLE MLFLOW AUTOLOGGING
+        # 14. ENABLE MLFLOW AUTOLOGGING
         #
-        # ONLY FOR THE FINAL MODEL.
+        # ONLY FOR FINAL MODEL.
         # ====================================================
 
         print("\n" + "=" * 60)
@@ -465,27 +757,7 @@ def train_model(
 
 
         # ====================================================
-        # 8. LOG FINAL OPTUNA PARAMETERS
-        #
-        # Use unique parameter names so they don't conflict
-        # with MLflow's final-model autologging.
-        # ====================================================
-
-        if ENABLE_FINE_TUNING:
-
-            for (
-                param_name,
-                param_value
-            ) in best_params.items():
-
-                mlflow.log_param(
-                    f"tuned_{param_name}",
-                    param_value,
-                )
-
-
-        # ====================================================
-        # 9. TRAIN FINAL MODEL
+        # 15. TRAIN FINAL MODEL
         # ====================================================
 
         print("\n" + "=" * 60)
@@ -509,7 +781,7 @@ def train_model(
 
 
         # ====================================================
-        # 10. FINAL MODEL INFORMATION
+        # 16. FINAL MODEL INFORMATION
         # ====================================================
 
         print("\n" + "=" * 60)
@@ -557,7 +829,7 @@ def train_model(
 
 
         # ====================================================
-        # 11. RETURN FINAL MODEL
+        # 17. RETURN FINAL MODEL
         # ====================================================
 
         return trained_model

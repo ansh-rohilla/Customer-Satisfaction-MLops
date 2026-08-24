@@ -1,16 +1,25 @@
+import json
+import time
 import requests
+import numpy as np
+import pandas as pd
 import streamlit as st
 from datetime import datetime
 
+# ============================================================
+# Page & Configuration Setup
+# ============================================================
 
-# ============================================================
-# Configuration
-# ============================================================
+st.set_page_config(
+    page_title="Customer Satisfaction AI | MLOps Platform",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 MLFLOW_ENDPOINT = "http://127.0.0.1:8002/invocations"
-
 MODEL_NAME = "Customer-Satisfaction-Model"
-MODEL_VERSION = "Champion"
+MODEL_ALIAS = "champion"
 MODEL_ALGORITHM = "LightGBM Regressor"
 
 FEATURES = [
@@ -28,619 +37,426 @@ FEATURES = [
     "product_width_cm",
 ]
 
+PRESETS = {
+    "🌟 VIP / High Satisfaction": {
+        "payment_sequential": 1,
+        "payment_installments": 1,
+        "payment_value": 350.0,
+        "price": 320.0,
+        "freight_value": 12.0,
+        "product_name_lenght": 58,
+        "product_description_lenght": 1200,
+        "product_photos_qty": 6,
+        "product_weight_g": 450.0,
+        "product_length_cm": 18.0,
+        "product_height_cm": 12.0,
+        "product_width_cm": 14.0,
+    },
+    "⚡ Express Standard": {
+        "payment_sequential": 1,
+        "payment_installments": 2,
+        "payment_value": 110.0,
+        "price": 90.0,
+        "freight_value": 20.0,
+        "product_name_lenght": 42,
+        "product_description_lenght": 450,
+        "product_photos_qty": 3,
+        "product_weight_g": 800.0,
+        "product_length_cm": 25.0,
+        "product_height_cm": 15.0,
+        "product_width_cm": 20.0,
+    },
+    "📦 Heavy Freight & Slow": {
+        "payment_sequential": 2,
+        "payment_installments": 10,
+        "payment_value": 180.0,
+        "price": 70.0,
+        "freight_value": 110.0,
+        "product_name_lenght": 22,
+        "product_description_lenght": 110,
+        "product_photos_qty": 1,
+        "product_weight_g": 12500.0,
+        "product_length_cm": 70.0,
+        "product_height_cm": 50.0,
+        "product_width_cm": 45.0,
+    },
+    "⚠️ High Risk / Poor Listing": {
+        "payment_sequential": 3,
+        "payment_installments": 12,
+        "payment_value": 45.0,
+        "price": 15.0,
+        "freight_value": 30.0,
+        "product_name_lenght": 15,
+        "product_description_lenght": 60,
+        "product_photos_qty": 1,
+        "product_weight_g": 3200.0,
+        "product_length_cm": 40.0,
+        "product_height_cm": 30.0,
+        "product_width_cm": 25.0,
+    },
+}
 
-# ============================================================
-# Page Configuration
-# ============================================================
-
-st.set_page_config(
-    page_title="Customer Satisfaction AI",
-    page_icon="",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-
-# ============================================================
-# Session State
-# ============================================================
-
+# Initialize Session State
 if "prediction_history" not in st.session_state:
     st.session_state.prediction_history = []
 
+if "use_mock_fallback" not in st.session_state:
+    st.session_state.use_mock_fallback = False
+
+# Populate default input values if not present
+for preset_key, preset_val in PRESETS["⚡ Express Standard"].items():
+    if preset_key not in st.session_state:
+        st.session_state[preset_key] = preset_val
+
+
+def apply_preset(preset_name: str):
+    """Apply preset values to session state input keys."""
+    if preset_name in PRESETS:
+        for k, v in PRESETS[preset_name].items():
+            st.session_state[k] = v
+
+
+def mock_predict(feature_values: list) -> float:
+    """Intelligent offline fallback predictor for demo purposes."""
+    price = feature_values[3]
+    freight = feature_values[4]
+    desc_len = feature_values[6]
+    photos = feature_values[7]
+    weight = feature_values[8]
+
+    freight_ratio = freight / max(1.0, (price + freight))
+    score = 4.2
+
+    if freight_ratio > 0.35:
+        score -= 0.9
+    elif freight_ratio < 0.15:
+        score += 0.4
+
+    if photos >= 4:
+        score += 0.3
+    elif photos == 1:
+        score -= 0.3
+
+    if desc_len > 800:
+        score += 0.2
+    elif desc_len < 100:
+        score -= 0.4
+
+    if weight > 8000:
+        score -= 0.3
+
+    return float(np.clip(score, 1.0, 5.0))
+
 
 # ============================================================
-# Custom CSS
+# Inject Custom Modern CSS
 # ============================================================
 
 st.markdown(
     """
     <style>
-
-    /* -------------------------------------------------------
-       Global
-    ------------------------------------------------------- */
+    /* Global Styling & Reset */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap');
 
     html, body, [class*="css"] {
-        font-family:
-            Inter,
-            -apple-system,
-            BlinkMacSystemFont,
-            "Segoe UI",
-            Roboto,
-            Helvetica,
-            Arial,
-            sans-serif;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
 
     .stApp {
-        background: #f6f8fc;
+        background-color: #0b0f19;
+        color: #f3f4f6;
     }
 
+    /* Top Padding & Block Constraints */
     .main .block-container {
-        max-width: 1450px;
-        padding-top: 2rem;
+        max-width: 1400px;
+        padding-top: 1.5rem;
         padding-bottom: 3rem;
-        padding-left: 3rem;
-        padding-right: 3rem;
     }
 
-    /* Remove excessive Streamlit top space */
-    header {
+    header[data-testid="stHeader"] {
         background: transparent !important;
     }
 
-    /* -------------------------------------------------------
-       Sidebar
-    ------------------------------------------------------- */
-
+    /* Sidebar Styling */
     section[data-testid="stSidebar"] {
-        background: #111827;
-        border-right: 1px solid #1f2937;
-    }
-
-    section[data-testid="stSidebar"] > div {
-        padding-top: 2rem;
+        background-color: #111827;
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .sidebar-brand {
-        padding: 0.5rem 0.25rem 1.8rem 0.25rem;
-        border-bottom: 1px solid #273244;
-        margin-bottom: 1.8rem;
+        padding: 0.5rem 0.5rem 1.2rem 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 1.2rem;
     }
 
     .sidebar-brand-title {
+        font-family: 'Outfit', sans-serif;
         color: #ffffff;
         font-size: 1.35rem;
         font-weight: 700;
         letter-spacing: -0.02em;
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
 
-    .sidebar-brand-subtitle {
-        color: #94a3b8;
+    .sidebar-brand-sub {
+        color: #9ca3af;
         font-size: 0.78rem;
-        margin-top: 0.35rem;
+        margin-top: 2px;
     }
 
-    .sidebar-section {
-        color: #64748b;
-        font-size: 0.68rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        margin-top: 1.5rem;
-        margin-bottom: 0.8rem;
-    }
-
-    .sidebar-item {
-        color: #cbd5e1;
-        font-size: 0.84rem;
-        padding: 0.55rem 0;
-    }
-
-    .sidebar-item strong {
-        color: #ffffff;
-        font-weight: 600;
-    }
-
-    .sidebar-status {
-        background: #172033;
-        border: 1px solid #26344a;
-        border-radius: 10px;
-        padding: 0.9rem;
-        margin-top: 0.5rem;
-    }
-
-    .status-dot {
+    .sidebar-badge {
         display: inline-block;
-        width: 8px;
-        height: 8px;
-        background: #22c55e;
-        border-radius: 50%;
-        margin-right: 7px;
-    }
-
-    .status-online {
-        color: #86efac;
-        font-size: 0.82rem;
-        font-weight: 600;
-    }
-
-    .endpoint {
-        color: #94a3b8;
-        font-size: 0.68rem;
-        word-break: break-all;
-        margin-top: 0.45rem;
-        line-height: 1.5;
-    }
-
-    /* -------------------------------------------------------
-       Hero
-    ------------------------------------------------------- */
-
-    .hero {
-        background:
-            linear-gradient(
-                135deg,
-                #111827 0%,
-                #172554 55%,
-                #312e81 100%
-            );
-        border-radius: 22px;
-        padding: 3rem 3.2rem;
-        margin-bottom: 1.6rem;
-        box-shadow:
-            0 20px 50px rgba(15, 23, 42, 0.15);
-    }
-
-    .hero-label {
-        display: inline-block;
-        color: #a5b4fc;
+        padding: 4px 10px;
+        border-radius: 20px;
         font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        margin-bottom: 0.9rem;
+        font-weight: 600;
+        margin-top: 8px;
+    }
+
+    .badge-online {
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(52, 211, 153, 0.3);
+    }
+
+    .badge-mock {
+        background: rgba(245, 158, 11, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(251, 191, 36, 0.3);
+    }
+
+    /* Hero Banner */
+    .hero-box {
+        background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 50%, #172554 100%);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 20px;
+        padding: 2.2rem 2.6rem;
+        margin-bottom: 1.8rem;
+        box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        position: relative;
+        overflow: hidden;
     }
 
     .hero-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 2.3rem;
+        font-weight: 800;
         color: #ffffff;
-        font-size: clamp(2rem, 4vw, 3.4rem);
-        font-weight: 750;
-        letter-spacing: -0.045em;
-        line-height: 1.08;
+        letter-spacing: -0.03em;
         margin: 0;
+        line-height: 1.15;
     }
 
-    .hero-description {
+    .hero-subtitle {
         color: #cbd5e1;
         font-size: 1rem;
-        line-height: 1.7;
-        max-width: 800px;
-        margin-top: 1rem;
-        margin-bottom: 0;
+        max-width: 850px;
+        margin-top: 0.6rem;
+        line-height: 1.6;
     }
 
-    /* -------------------------------------------------------
-       Metric Cards
-    ------------------------------------------------------- */
-
-    .metric-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 15px;
-        padding: 1.25rem 1.35rem;
-        min-height: 110px;
-        box-shadow: 0 5px 18px rgba(15, 23, 42, 0.04);
+    /* Card Panels */
+    .glass-card {
+        background: rgba(17, 24, 39, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 1.4rem 1.6rem;
+        margin-bottom: 1.2rem;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
     }
 
-    .metric-label {
-        color: #64748b;
-        font-size: 0.67rem;
+    .glass-card-header {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.05rem;
         font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
+        color: #f8fafc;
+        margin-bottom: 0.3rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
 
-    .metric-value {
-        color: #0f172a;
-        font-size: 1.18rem;
-        font-weight: 700;
-        margin-top: 0.5rem;
-    }
-
-    .metric-description {
+    .glass-card-sub {
         color: #94a3b8;
-        font-size: 0.72rem;
-        margin-top: 0.25rem;
+        font-size: 0.8rem;
+        margin-bottom: 1rem;
     }
 
-    /* -------------------------------------------------------
-       Section Headers
-    ------------------------------------------------------- */
-
-    .section-header {
-        margin-top: 2rem;
-        margin-bottom: 0.9rem;
+    /* Metric Display Box */
+    .metric-pill {
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        padding: 0.9rem 1.1rem;
+        text-align: center;
     }
 
-    .section-title {
-        color: #0f172a;
+    .metric-pill-val {
+        font-family: 'Outfit', sans-serif;
         font-size: 1.25rem;
         font-weight: 700;
-        letter-spacing: -0.025em;
+        color: #60a5fa;
     }
 
-    .section-description {
-        color: #64748b;
-        font-size: 0.84rem;
-        margin-top: 0.25rem;
-    }
-
-    /* -------------------------------------------------------
-       Input Cards
-    ------------------------------------------------------- */
-
-    .input-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 1.35rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 5px 18px rgba(15, 23, 42, 0.035);
-    }
-
-    .input-card-title {
-        color: #1e293b;
-        font-size: 0.95rem;
-        font-weight: 700;
-        margin-bottom: 0.15rem;
-    }
-
-    .input-card-description {
+    .metric-pill-lbl {
         color: #94a3b8;
-        font-size: 0.74rem;
-        margin-bottom: 1rem;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 2px;
     }
 
-    /* Streamlit input labels */
-    label {
-        color: #334155 !important;
-        font-size: 0.78rem !important;
-        font-weight: 600 !important;
+    /* Prediction Result Showcase */
+    .result-container {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        border: 1px solid rgba(129, 140, 248, 0.3);
+        border-radius: 20px;
+        padding: 2.2rem;
+        text-align: center;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+        position: relative;
     }
 
-    /* Number inputs */
+    .result-score {
+        font-family: 'Outfit', sans-serif;
+        font-size: 4.8rem;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -0.05em;
+        margin: 0.5rem 0;
+    }
+
+    .score-emerald { color: #34d399; text-shadow: 0 0 30px rgba(52, 211, 153, 0.4); }
+    .score-indigo  { color: #818cf8; text-shadow: 0 0 30px rgba(129, 140, 248, 0.4); }
+    .score-amber   { color: #fbbf24; text-shadow: 0 0 30px rgba(251, 191, 36, 0.4); }
+    .score-crimson { color: #f87171; text-shadow: 0 0 30px rgba(248, 113, 113, 0.4); }
+
+    .result-badge {
+        display: inline-block;
+        padding: 6px 18px;
+        border-radius: 30px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        margin-top: 0.6rem;
+    }
+
+    .bg-emerald { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+    .bg-indigo  { background: rgba(129, 140, 248, 0.15); color: #818cf8; border: 1px solid rgba(129, 140, 248, 0.3); }
+    .bg-amber   { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+    .bg-crimson { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
+
+    /* Custom Streamlit Input Overrides */
     div[data-testid="stNumberInput"] input {
-        background: #f8fafc !important;
-        color: #0f172a !important;
-        border: 1px solid #dbe3ee !important;
-        border-radius: 9px !important;
-        font-size: 0.9rem !important;
-        font-weight: 500 !important;
-        min-height: 42px !important;
+        background-color: #1e293b !important;
+        color: #f8fafc !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 8px !important;
     }
 
     div[data-testid="stNumberInput"] input:focus {
         border-color: #6366f1 !important;
-        box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12) !important;
+        box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25) !important;
     }
 
-    /* -------------------------------------------------------
-       Prediction Button
-    ------------------------------------------------------- */
-
-    div.stButton > button {
-        width: 100%;
-        min-height: 52px;
-        border-radius: 11px;
-        border: none;
-        background: linear-gradient(
-            135deg,
-            #4f46e5,
-            #6366f1
-        );
-        color: #ffffff;
-        font-size: 0.95rem;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        box-shadow: 0 8px 20px rgba(79, 70, 229, 0.2);
-        transition: all 0.2s ease;
+    div[data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: rgba(17, 24, 39, 0.8);
+        padding: 6px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    div.stButton > button:hover {
-        background: linear-gradient(
-            135deg,
-            #4338ca,
-            #4f46e5
-        );
-        transform: translateY(-1px);
-        box-shadow: 0 10px 25px rgba(79, 70, 229, 0.27);
+    div[data-baseweb="tab"] {
+        border-radius: 8px !important;
+        padding: 10px 20px !important;
+        font-weight: 600 !important;
+        color: #94a3b8 !important;
     }
 
-    /* -------------------------------------------------------
-       Prediction Result
-    ------------------------------------------------------- */
+    div[data-baseweb="tab"][aria-selected="true"] {
+        background-color: #4f46e5 !important;
+        color: #ffffff !important;
+    }
 
-    .prediction-container {
-        background: linear-gradient(
-            135deg,
-            #111827 0%,
-            #1e293b 100%
-        );
-        border-radius: 20px;
-        padding: 2.3rem;
-        margin-top: 1.5rem;
-        color: white;
+    /* Footer */
+    .footer-bar {
         text-align: center;
-        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
-    }
-
-    .prediction-label {
-        color: #94a3b8;
-        font-size: 0.72rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.13em;
-    }
-
-    .prediction-score {
-        color: #ffffff;
-        font-size: 4.4rem;
-        font-weight: 800;
-        letter-spacing: -0.06em;
-        line-height: 1;
-        margin-top: 0.7rem;
-    }
-
-    .prediction-scale {
-        color: #94a3b8;
-        font-size: 0.9rem;
-        margin-top: 0.45rem;
-    }
-
-    .prediction-status {
-        display: inline-block;
-        margin-top: 1.2rem;
-        padding: 0.45rem 1rem;
-        border-radius: 999px;
-        background: rgba(99, 102, 241, 0.18);
-        border: 1px solid rgba(129, 140, 248, 0.25);
-        color: #c7d2fe;
-        font-size: 0.82rem;
-        font-weight: 700;
-    }
-
-    /* -------------------------------------------------------
-       Progress
-    ------------------------------------------------------- */
-
-    .progress-wrapper {
-        margin-top: 1.7rem;
-    }
-
-    .progress-background {
-        height: 9px;
-        width: 100%;
-        background: #334155;
-        border-radius: 20px;
-        overflow: hidden;
-    }
-
-    .progress-fill {
-        height: 100%;
-        background: linear-gradient(
-            90deg,
-            #6366f1,
-            #818cf8
-        );
-        border-radius: 20px;
-    }
-
-    .progress-labels {
-        display: flex;
-        justify-content: space-between;
         color: #64748b;
-        font-size: 0.68rem;
-        margin-top: 0.45rem;
-    }
-
-    /* -------------------------------------------------------
-       Info Cards
-    ------------------------------------------------------- */
-
-    .info-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 14px;
-        padding: 1.1rem 1.2rem;
-        margin-top: 1rem;
-    }
-
-    .info-title {
-        color: #334155;
-        font-size: 0.72rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-    }
-
-    .info-value {
-        color: #0f172a;
-        font-size: 0.95rem;
-        font-weight: 650;
-        margin-top: 0.35rem;
-    }
-
-    /* -------------------------------------------------------
-       History
-    ------------------------------------------------------- */
-
-    .history-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 15px;
-        padding: 1rem 1.2rem;
-        margin-top: 0.8rem;
-    }
-
-    .history-score {
-        color: #0f172a;
-        font-size: 1.15rem;
-        font-weight: 750;
-    }
-
-    .history-time {
-        color: #94a3b8;
-        font-size: 0.72rem;
-    }
-
-    /* -------------------------------------------------------
-       Footer
-    ------------------------------------------------------- */
-
-    .footer {
-        text-align: center;
-        color: #94a3b8;
-        font-size: 0.72rem;
-        margin-top: 3rem;
+        font-size: 0.78rem;
+        margin-top: 3.5rem;
         padding-top: 1.5rem;
-        border-top: 1px solid #e2e8f0;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
     }
-
-    /* -------------------------------------------------------
-       Hide Streamlit branding
-    ------------------------------------------------------- */
-
-    #MainMenu {
-        visibility: hidden;
-    }
-
-    footer {
-        visibility: hidden;
-    }
-
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
 # ============================================================
-# Sidebar
+# Sidebar Component
 # ============================================================
 
 with st.sidebar:
-
     st.markdown(
         """
         <div class="sidebar-brand">
-            <div class="sidebar-brand-title">Customer AI</div>
-            <div class="sidebar-brand-subtitle">
-                MLOps Prediction Platform
+            <div class="sidebar-brand-title">
+                ⚡ Customer AI
+            </div>
+            <div class="sidebar-brand-sub">
+                MLOps Prediction & Analytics Engine
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        '<div class="sidebar-section">Model</div>',
-        unsafe_allow_html=True,
+    st.markdown("### 🛠️ Execution Mode")
+    mock_mode = st.toggle(
+        "Offline Mock Mode (Demo)",
+        value=st.session_state.use_mock_fallback,
+        help="Enable offline predictions if local MLflow server is stopped.",
     )
+    st.session_state.use_mock_fallback = mock_mode
 
-    st.markdown(
-        '<div class="sidebar-item"><strong>Algorithm</strong></div>',
-        unsafe_allow_html=True,
-    )
+    if mock_mode:
+        st.markdown(
+            '<div class="sidebar-badge badge-mock">🟡 Mock Model Mode</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="sidebar-badge badge-online">🟢 MLflow Server Target</div>',
+            unsafe_allow_html=True,
+        )
 
-    st.markdown(
-        '<div class="sidebar-item">LightGBM Regressor</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="sidebar-item"><strong>Task</strong></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="sidebar-item">Customer Satisfaction Regression</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="sidebar-item"><strong>Output Range</strong></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="sidebar-item">1.0 — 5.0</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="sidebar-section">MLOps Stack</div>',
-        unsafe_allow_html=True,
-    )
-
+    st.markdown("---")
+    st.markdown("### 📋 Production MLOps Stack")
     st.markdown(
         """
-        <div class="sidebar-item">
-            ZenML — Pipeline orchestration
-        </div>
-
-        <div class="sidebar-item">
-            MLflow — Experiment tracking
-        </div>
-
-        <div class="sidebar-item">
-            MLflow — Model serving
-        </div>
-
-        <div class="sidebar-item">
-            Streamlit — User interface
-        </div>
-        """,
-        unsafe_allow_html=True,
+        - **Pipeline Framework**: ZenML
+        - **Experiment Tracking**: MLflow
+        - **Model Registry**: Champion Alias
+        - **Model Algorithm**: LightGBM
+        - **REST Endpoint**: `:8002/invocations`
+        """
     )
 
-    st.markdown(
-        '<div class="sidebar-section">Model Server</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        f"""
-        <div class="sidebar-status">
-            <div class="status-online">
-                <span class="status-dot"></span>
-                MLflow server configured
-            </div>
-
-            <div class="endpoint">
-                {MLFLOW_ENDPOINT}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
+    st.markdown("---")
+    st.markdown("### 📊 Dataset Reference")
     st.markdown(
         """
-        <div style="
-            margin-top: 2.5rem;
-            color: #64748b;
-            font-size: 0.68rem;
-            line-height: 1.6;
-        ">
-            Customer Satisfaction MLOps<br>
-            Built with ZenML and MLflow
-        </div>
-        """,
-        unsafe_allow_html=True,
+        - **Source**: Olist Brazilian E-Commerce
+        - **Target**: Review Score (1.0 — 5.0)
+        - **Features**: 12 Input Features
+        """
     )
-
 
 # ============================================================
 # Hero Section
@@ -648,693 +464,612 @@ with st.sidebar:
 
 st.markdown(
     """
-    <div class="hero">
-
-        <div class="hero-label">
-            AI-POWERED CUSTOMER ANALYTICS
-        </div>
-
-        <h1 class="hero-title">
-            Customer Satisfaction Predictor
-        </h1>
-
-        <p class="hero-description">
-            Predict the expected customer review score using a
-            production-oriented machine learning pipeline powered
-            by ZenML, MLflow, and LightGBM.
-        </p>
-
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# Model Overview Cards
-# ============================================================
-
-metric1, metric2, metric3, metric4 = st.columns(4)
-
-with metric1:
-    st.markdown(
-        """
-        <div class="metric-card">
-            <div class="metric-label">Model</div>
-            <div class="metric-value">LightGBM</div>
-            <div class="metric-description">
-                Gradient boosting regression
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with metric2:
-    st.markdown(
-        """
-        <div class="metric-card">
-            <div class="metric-label">Features</div>
-            <div class="metric-value">12</div>
-            <div class="metric-description">
-                Input variables
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with metric3:
-    st.markdown(
-        """
-        <div class="metric-card">
-            <div class="metric-label">Framework</div>
-            <div class="metric-value">ZenML</div>
-            <div class="metric-description">
-                Pipeline orchestration
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with metric4:
-    st.markdown(
-        """
-        <div class="metric-card">
-            <div class="metric-label">Serving</div>
-            <div class="metric-value">MLflow</div>
-            <div class="metric-description">
-                Model deployment
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# ============================================================
-# Main Input Section
-# ============================================================
-
-st.markdown(
-    """
-    <div class="section-header">
-        <div class="section-title">
-            Order and Product Information
-        </div>
-        <div class="section-description">
-            Enter the characteristics of the order to estimate
-            customer satisfaction.
+    <div class="hero-box">
+        <div class="hero-title">Customer Satisfaction Intelligence</div>
+        <div class="hero-subtitle">
+            Estimate e-commerce customer review scores in real-time using production-grade machine learning pipelines powered by ZenML, MLflow, and LightGBM.
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-
 # ============================================================
-# Payment Information
-# ============================================================
-
-st.markdown(
-    """
-    <div class="input-card">
-        <div class="input-card-title">
-            Payment and Order Details
-        </div>
-        <div class="input-card-description">
-            Enter payment-related information for the order.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    payment_sequential = st.number_input(
-        "Payment Sequential",
-        min_value=0,
-        value=1,
-        step=1,
-    )
-
-with col2:
-    payment_installments = st.number_input(
-        "Payment Installments",
-        min_value=0,
-        value=1,
-        step=1,
-    )
-
-with col3:
-    payment_value = st.number_input(
-        "Payment Value",
-        min_value=0.0,
-        value=100.0,
-        step=10.0,
-    )
-
-with col4:
-    price = st.number_input(
-        "Product Price",
-        min_value=0.0,
-        value=80.0,
-        step=10.0,
-    )
-
-
-# ============================================================
-# Shipping Information
+# Main Navigation Tabs
 # ============================================================
 
-st.markdown(
-    """
-    <div class="input-card">
-        <div class="input-card-title">
-            Shipping and Freight
-        </div>
-        <div class="input-card-description">
-            Enter freight and physical product information.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    freight_value = st.number_input(
-        "Freight Value",
-        min_value=0.0,
-        value=20.0,
-        step=5.0,
-    )
-
-with col2:
-    product_weight_g = st.number_input(
-        "Product Weight (g)",
-        min_value=0.0,
-        value=500.0,
-        step=50.0,
-    )
-
-with col3:
-    product_length_cm = st.number_input(
-        "Product Length (cm)",
-        min_value=0.0,
-        value=20.0,
-        step=1.0,
-    )
-
-with col4:
-    product_height_cm = st.number_input(
-        "Product Height (cm)",
-        min_value=0.0,
-        value=10.0,
-        step=1.0,
-    )
-
-
-# ============================================================
-# Product Information
-# ============================================================
-
-st.markdown(
-    """
-    <div class="input-card">
-        <div class="input-card-title">
-            Product Characteristics
-        </div>
-        <div class="input-card-description">
-            Enter product description and dimensional information.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    product_width_cm = st.number_input(
-        "Product Width (cm)",
-        min_value=0.0,
-        value=15.0,
-        step=1.0,
-    )
-
-with col2:
-    product_name_lenght = st.number_input(
-        "Product Name Length",
-        min_value=0,
-        value=40,
-        step=1,
-    )
-
-with col3:
-    product_description_lenght = st.number_input(
-        "Description Length",
-        min_value=0,
-        value=200,
-        step=10,
-    )
-
-with col4:
-    product_photos_qty = st.number_input(
-        "Product Photos",
-        min_value=0,
-        value=3,
-        step=1,
-    )
-
-
-# ============================================================
-# Prediction Button
-# ============================================================
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-predict_button = st.button(
-    "Predict Customer Satisfaction",
-    type="primary",
-    use_container_width=True,
-)
-
-
-# ============================================================
-# Prediction
-# ============================================================
-
-if predict_button:
-
-    input_data = [
-        [
-            payment_sequential,
-            payment_installments,
-            payment_value,
-            price,
-            freight_value,
-            product_name_lenght,
-            product_description_lenght,
-            product_photos_qty,
-            product_weight_g,
-            product_length_cm,
-            product_height_cm,
-            product_width_cm,
-        ]
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "🔮 Single Predictor",
+        "📁 Batch CSV Prediction",
+        "🛠️ MLOps System Health",
+        "📜 Session History Logs",
     ]
+)
 
-    payload = {
-        "dataframe_split": {
-            "columns": FEATURES,
-            "data": input_data,
-        }
-    }
+# ------------------------------------------------------------
+# TAB 1: SINGLE PREDICTOR
+# ------------------------------------------------------------
 
-    with st.spinner("Running prediction through the MLflow model..."):
+with tab1:
 
-        try:
+    # Presets Bar
+    st.markdown("##### ⚡ Quick Scenario Presets")
+    preset_cols = st.columns(4)
 
-            response = requests.post(
-                MLFLOW_ENDPOINT,
-                json=payload,
-                timeout=30,
+    for i, (preset_name, _) in enumerate(PRESETS.items()):
+        with preset_cols[i]:
+            if st.button(
+                preset_name, use_container_width=True, key=f"btn_preset_{i}"
+            ):
+                apply_preset(preset_name)
+                st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Input Form Layout
+    col_left, col_right = st.columns([1.1, 0.9], gap="large")
+
+    with col_left:
+
+        # Group 1: Order & Financials
+        with st.container():
+            st.markdown(
+                """
+                <div class="glass-card">
+                    <div class="glass-card-header">💳 Order & Payment Details</div>
+                    <div class="glass-card-sub">Transaction values, payment methods, and installment structure.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-            if response.status_code == 200:
-
-                result = response.json()
-
-                prediction = float(
-                    result["predictions"][0]
+            c1, c2 = st.columns(2)
+            with c1:
+                payment_sequential = st.number_input(
+                    "Payment Sequences",
+                    min_value=1,
+                    max_value=10,
+                    key="payment_sequential",
+                )
+                payment_value = st.number_input(
+                    "Total Payment Value ($)",
+                    min_value=0.0,
+                    step=10.0,
+                    key="payment_value",
                 )
 
-                # Keep display value within review range.
-                display_prediction = max(
-                    1.0,
-                    min(5.0, prediction)
+            with c2:
+                payment_installments = st.number_input(
+                    "Payment Installments",
+                    min_value=1,
+                    max_value=24,
+                    key="payment_installments",
+                )
+                price = st.number_input(
+                    "Product Price ($)",
+                    min_value=0.0,
+                    step=10.0,
+                    key="price",
                 )
 
-                # ------------------------------------------------
-                # Determine interpretation
-                # ------------------------------------------------
+        # Group 2: Freight & Physical Attributes
+        with st.container():
+            st.markdown(
+                """
+                <div class="glass-card">
+                    <div class="glass-card-header">🚚 Shipping & Physical Characteristics</div>
+                    <div class="glass-card-sub">Freight costs, weight, and dimensional measurements.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-                if display_prediction >= 4.5:
-                    status = "Excellent Satisfaction"
-                    description = (
-                        "The customer is likely to provide a "
-                        "very positive review."
-                    )
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                freight_value = st.number_input(
+                    "Freight Value ($)",
+                    min_value=0.0,
+                    step=5.0,
+                    key="freight_value",
+                )
+                product_weight_g = st.number_input(
+                    "Weight (g)",
+                    min_value=0.0,
+                    step=50.0,
+                    key="product_weight_g",
+                )
 
-                elif display_prediction >= 4.0:
-                    status = "Very Good Satisfaction"
-                    description = (
-                        "The customer is likely to be satisfied "
-                        "with the purchase."
-                    )
+            with c2:
+                product_length_cm = st.number_input(
+                    "Length (cm)",
+                    min_value=0.0,
+                    step=1.0,
+                    key="product_length_cm",
+                )
+                product_height_cm = st.number_input(
+                    "Height (cm)",
+                    min_value=0.0,
+                    step=1.0,
+                    key="product_height_cm",
+                )
 
-                elif display_prediction >= 3.0:
-                    status = "Moderate Satisfaction"
-                    description = (
-                        "The prediction indicates moderate "
-                        "satisfaction with room for improvement."
-                    )
+            with c3:
+                product_width_cm = st.number_input(
+                    "Width (cm)",
+                    min_value=0.0,
+                    step=1.0,
+                    key="product_width_cm",
+                )
 
+        # Group 3: Listing Quality
+        with st.container():
+            st.markdown(
+                """
+                <div class="glass-card">
+                    <div class="glass-card-header">📝 Product Listing Quality</div>
+                    <div class="glass-card-sub">Media richness and description completeness.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                product_name_lenght = st.number_input(
+                    "Title Length",
+                    min_value=1,
+                    step=1,
+                    key="product_name_lenght",
+                )
+            with c2:
+                product_description_lenght = st.number_input(
+                    "Description Length",
+                    min_value=1,
+                    step=20,
+                    key="product_description_lenght",
+                )
+            with c3:
+                product_photos_qty = st.number_input(
+                    "Photo Count",
+                    min_value=0,
+                    step=1,
+                    key="product_photos_qty",
+                )
+
+    with col_right:
+
+        # Real-time Feature Analytics Panel
+        st.markdown(
+            """
+            <div class="glass-card">
+                <div class="glass-card-header">📈 Derived Feature Analytics</div>
+                <div class="glass-card-sub">Real-time calculated metrics sent to the model.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        freight_ratio = (freight_value / max(1.0, (price + freight_value))) * 100
+        vol_cm3 = product_length_cm * product_height_cm * product_width_cm
+        density = product_weight_g / max(1.0, vol_cm3)
+        monthly = payment_value / max(1, payment_installments)
+
+        m1, m2 = st.columns(2)
+        with m1:
+            st.markdown(
+                f"""
+                <div class="metric-pill">
+                    <div class="metric-pill-val">{freight_ratio:.1f}%</div>
+                    <div class="metric-pill-lbl">Freight / Total Ratio</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div class="metric-pill">
+                    <div class="metric-pill-val">${monthly:.2f}</div>
+                    <div class="metric-pill-lbl">Monthly Installment</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with m2:
+            st.markdown(
+                f"""
+                <div class="metric-pill">
+                    <div class="metric-pill-val">{vol_cm3:,.0f} cm³</div>
+                    <div class="metric-pill-lbl">Product Volume</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div class="metric-pill">
+                    <div class="metric-pill-val">{density:.2f} g/cm³</div>
+                    <div class="metric-pill-lbl">Item Density</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        predict_btn = st.button(
+            "⚡ Predict Customer Satisfaction",
+            type="primary",
+            use_container_width=True,
+        )
+
+        if predict_btn:
+
+            raw_input = [
+                payment_sequential,
+                payment_installments,
+                payment_value,
+                price,
+                freight_value,
+                product_name_lenght,
+                product_description_lenght,
+                product_photos_qty,
+                product_weight_g,
+                product_length_cm,
+                product_height_cm,
+                product_width_cm,
+            ]
+
+            payload = {
+                "dataframe_split": {
+                    "columns": FEATURES,
+                    "data": [raw_input],
+                }
+            }
+
+            score_val = None
+            is_mock_used = False
+            latency_ms = 0
+
+            with st.spinner("Processing prediction..."):
+                start_t = time.time()
+
+                if not st.session_state.use_mock_fallback:
+                    try:
+                        res = requests.post(
+                            MLFLOW_ENDPOINT, json=payload, timeout=5
+                        )
+                        latency_ms = int((time.time() - start_t) * 1000)
+
+                        if res.status_code == 200:
+                            score_val = float(res.json()["predictions"][0])
+                        else:
+                            st.warning(
+                                f"MLflow endpoint returned HTTP {res.status_code}. Using fallback mock predictor."
+                            )
+                            score_val = mock_predict(raw_input)
+                            is_mock_used = True
+                    except Exception:
+                        st.info(
+                            "MLflow endpoint unreachable. Switched to offline mock prediction."
+                        )
+                        score_val = mock_predict(raw_input)
+                        is_mock_used = True
                 else:
-                    status = "Low Satisfaction"
-                    description = (
-                        "The order may have a higher probability "
-                        "of receiving a negative review."
-                    )
+                    score_val = mock_predict(raw_input)
+                    is_mock_used = True
+                    latency_ms = int((time.time() - start_t) * 1000)
 
-                # ------------------------------------------------
-                # Save prediction to history
-                # ------------------------------------------------
+            display_score = float(np.clip(score_val, 1.0, 5.0))
 
-                st.session_state.prediction_history.insert(
-                    0,
-                    {
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "score": display_prediction,
-                        "status": status,
-                    },
-                )
-
-                # Keep only latest 10
-                st.session_state.prediction_history = (
-                    st.session_state.prediction_history[:10]
-                )
-
-                # ------------------------------------------------
-                # Prediction Result
-                # ------------------------------------------------
-
-                st.markdown(
-                    f"""
-                    <div class="prediction-container">
-
-                        <div class="prediction-label">
-                            Predicted Customer Satisfaction
-                        </div>
-
-                        <div class="prediction-score">
-                            {display_prediction:.2f}
-                        </div>
-
-                        <div class="prediction-scale">
-                            out of 5.0
-                        </div>
-
-                        <div class="prediction-status">
-                            {status}
-                        </div>
-
-                        <div class="progress-wrapper">
-
-                            <div class="progress-background">
-                                <div
-                                    class="progress-fill"
-                                    style="width:
-                                    {display_prediction / 5 * 100}%"
-                                ></div>
-                            </div>
-
-                            <div class="progress-labels">
-                                <span>1.0</span>
-                                <span>2.0</span>
-                                <span>3.0</span>
-                                <span>4.0</span>
-                                <span>5.0</span>
-                            </div>
-
-                        </div>
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                # ------------------------------------------------
-                # Interpretation
-                # ------------------------------------------------
-
-                st.markdown(
-                    f"""
-                    <div class="info-card">
-
-                        <div class="info-title">
-                            Result Interpretation
-                        </div>
-
-                        <div class="info-value">
-                            {description}
-                        </div>
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                # ------------------------------------------------
-                # Prediction Details
-                # ------------------------------------------------
-
-                detail1, detail2, detail3 = st.columns(3)
-
-                with detail1:
-                    st.markdown(
-                        f"""
-                        <div class="info-card">
-                            <div class="info-title">
-                                Model
-                            </div>
-                            <div class="info-value">
-                                {MODEL_ALGORITHM}
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                with detail2:
-                    st.markdown(
-                        f"""
-                        <div class="info-card">
-                            <div class="info-title">
-                                Model Registry
-                            </div>
-                            <div class="info-value">
-                                {MODEL_NAME}
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                with detail3:
-                    st.markdown(
-                        """
-                        <div class="info-card">
-                            <div class="info-title">
-                                Serving
-                            </div>
-                            <div class="info-value">
-                                MLflow Model Server
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                # ------------------------------------------------
-                # API Response
-                # ------------------------------------------------
-
-                with st.expander("View MLflow API Response"):
-
-                    st.json(result)
-
+            # Categorize sentiment
+            if display_score >= 4.5:
+                class_style = "score-emerald"
+                badge_style = "bg-emerald"
+                status_text = "🌟 Outstanding Satisfaction"
+                desc_text = "The customer is highly likely to rate 5 stars. Delivery, pricing, and media listing parameters are optimized."
+            elif display_score >= 4.0:
+                class_style = "score-indigo"
+                badge_style = "bg-indigo"
+                status_text = "✨ High Satisfaction"
+                desc_text = "Positive review expected. Good overall balance between product pricing and shipping cost."
+            elif display_score >= 3.0:
+                class_style = "score-amber"
+                badge_style = "bg-amber"
+                status_text = "⚠️ Moderate Satisfaction"
+                desc_text = "Average score expected. Consider reducing freight costs or enhancing product photo count."
             else:
+                class_style = "score-crimson"
+                badge_style = "bg-crimson"
+                status_text = "🚨 Low Satisfaction Risk"
+                desc_text = "High probability of negative review. High freight-to-price ratio or sparse listing information detected."
 
+            # Save to session history
+            st.session_state.prediction_history.insert(
+                0,
+                {
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "score": display_score,
+                    "status": status_text,
+                    "is_mock": is_mock_used,
+                    "price": price,
+                    "freight": freight_value,
+                },
+            )
+
+            # Display Result Gauge Box
+            st.markdown(
+                f"""
+                <div class="result-container">
+                    <div style="color: #94a3b8; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;">
+                        Predicted Customer Score
+                    </div>
+                    <div class="result-score {class_style}">
+                        {display_score:.2f}
+                    </div>
+                    <div style="color: #cbd5e1; font-size: 0.9rem;">out of 5.0</div>
+                    <div class="result-badge {badge_style}">
+                        {status_text}
+                    </div>
+                    <div style="margin-top: 1.2rem; font-size: 0.82rem; color: #94a3b8; line-height: 1.5;">
+                        {desc_text}
+                    </div>
+                    <div style="margin-top: 1rem; color: #64748b; font-size: 0.72rem;">
+                        Latency: {latency_ms} ms &nbsp;•&nbsp; Engine: {"Mock Fallback" if is_mock_used else "MLflow Served Model"}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+# ------------------------------------------------------------
+# TAB 2: BATCH CSV PREDICTION
+# ------------------------------------------------------------
+
+with tab2:
+
+    st.markdown(
+        """
+        <div class="glass-card">
+            <div class="glass-card-header">📁 Bulk Dataset Prediction</div>
+            <div class="glass-card-sub">Upload a CSV file containing order features to predict scores for hundreds of transactions at once.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Sample CSV Download Button
+    sample_df = pd.DataFrame(
+        [
+            PRESETS["🌟 VIP / High Satisfaction"],
+            PRESETS["⚡ Express Standard"],
+            PRESETS["📦 Heavy Freight & Slow"],
+            PRESETS["⚠️ High Risk / Poor Listing"],
+        ]
+    )
+
+    csv_data = sample_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Download Sample Batch Input CSV Template",
+        data=csv_data,
+        file_name="sample_customer_orders.csv",
+        mime="text/csv",
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    uploaded_file = st.file_uploader(
+        "Upload Order Dataset (.csv)", type=["csv"]
+    )
+
+    if uploaded_file is not None:
+        try:
+            df_batch = pd.read_csv(uploaded_file)
+            st.write(f"Uploaded **{len(df_batch)}** rows.")
+
+            missing_cols = [c for c in FEATURES if c not in df_batch.columns]
+
+            if missing_cols:
                 st.error(
-                    f"Prediction failed. "
-                    f"HTTP Status: {response.status_code}"
+                    f"Uploaded CSV is missing required model features: {missing_cols}"
                 )
+            else:
+                if st.button("🚀 Run Batch Prediction", type="primary"):
+                    batch_predictions = []
 
-                st.code(response.text)
+                    with st.spinner("Executing batch predictions..."):
+                        for _, row in df_batch.iterrows():
+                            row_vals = [row[f] for f in FEATURES]
 
-        except requests.exceptions.ConnectionError:
+                            if st.session_state.use_mock_fallback:
+                                score = mock_predict(row_vals)
+                            else:
+                                try:
+                                    res = requests.post(
+                                        MLFLOW_ENDPOINT,
+                                        json={
+                                            "dataframe_split": {
+                                                "columns": FEATURES,
+                                                "data": [row_vals],
+                                            }
+                                        },
+                                        timeout=3,
+                                    )
+                                    if res.status_code == 200:
+                                        score = float(
+                                            res.json()["predictions"][0]
+                                        )
+                                    else:
+                                        score = mock_predict(row_vals)
+                                except Exception:
+                                    score = mock_predict(row_vals)
 
-            st.error(
-                "Unable to connect to the MLflow model server."
-            )
+                            batch_predictions.append(
+                                round(float(np.clip(score, 1.0, 5.0)), 2)
+                            )
 
-            st.info(
-                "Start the deployment first using:\n\n"
-                "python run_deployment.py --config predict"
-            )
+                    df_batch["Predicted_Review_Score"] = batch_predictions
 
-        except requests.exceptions.Timeout:
+                    st.success("Batch Prediction Complete!")
 
-            st.error(
-                "The MLflow model server did not respond within "
-                "the expected time."
-            )
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        st.metric(
+                            "Mean Score",
+                            f"{np.mean(batch_predictions):.2f} / 5.0",
+                        )
+                    with m2:
+                        st.metric("Min Score", f"{np.min(batch_predictions):.2f}")
+                    with m3:
+                        st.metric("Max Score", f"{np.max(batch_predictions):.2f}")
+
+                    st.dataframe(df_batch, use_container_width=True)
+
+                    out_csv = df_batch.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="📥 Download Scored Batch Results CSV",
+                        data=out_csv,
+                        file_name="customer_predictions_results.csv",
+                        mime="text/csv",
+                    )
 
         except Exception as e:
+            st.error(f"Error processing CSV file: {str(e)}")
 
-            st.error(
-                f"An unexpected error occurred: {str(e)}"
-            )
+# ------------------------------------------------------------
+# TAB 3: MLOPS SYSTEM HEALTH
+# ------------------------------------------------------------
 
-
-# ============================================================
-# Prediction History
-# ============================================================
-
-if st.session_state.prediction_history:
+with tab3:
 
     st.markdown(
         """
-        <div class="section-header">
-            <div class="section-title">
-                Recent Predictions
-            </div>
-            <div class="section-description">
-                Predictions generated during this session.
-            </div>
+        <div class="glass-card">
+            <div class="glass-card-header">🛠️ MLOps Stack Architecture & Health Diagnostics</div>
+            <div class="glass-card-sub">Real-time status of pipeline orchestrator, experiment tracker, and model endpoint.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    for item in st.session_state.prediction_history:
+    h1, h2, h3 = st.columns(3)
 
-        score = item["score"]
-
-        if score >= 4.5:
-            indicator = "Excellent"
-        elif score >= 4.0:
-            indicator = "Very Good"
-        elif score >= 3.0:
-            indicator = "Moderate"
-        else:
-            indicator = "Low"
-
+    with h1:
         st.markdown(
-            f"""
-            <div class="history-card">
-
-                <div style="
-                    display:flex;
-                    justify-content:space-between;
-                    align-items:center;
-                ">
-
-                    <div>
-                        <div class="history-score">
-                            {score:.2f} / 5.0
-                        </div>
-
-                        <div class="history-time">
-                            Prediction generated at
-                            {item["time"]}
-                        </div>
-                    </div>
-
-                    <div style="
-                        color:#475569;
-                        font-size:0.78rem;
-                        font-weight:600;
-                    ">
-                        {indicator}
-                    </div>
-
-                </div>
-
+            """
+            <div class="metric-pill">
+                <div class="metric-pill-val">ZenML</div>
+                <div class="metric-pill-lbl">Pipeline Orchestrator</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
+    with h2:
+        st.markdown(
+            """
+            <div class="metric-pill">
+                <div class="metric-pill-val">MLflow</div>
+                <div class="metric-pill-lbl">Experiment Tracking & Registry</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-# ============================================================
-# MLOps Architecture
-# ============================================================
+    with h3:
+        st.markdown(
+            """
+            <div class="metric-pill">
+                <div class="metric-pill-val">LightGBM</div>
+                <div class="metric-pill-lbl">Trained Regressor Model</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-st.markdown(
-    """
-    <div class="section-header">
-        <div class="section-title">
-            MLOps Architecture
-        </div>
-        <div class="section-description">
-            Production workflow used to generate the prediction.
-        </div>
-    </div>
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Connection Diagnostic Button
+    if st.button("🔍 Ping MLflow Server Endpoint"):
+        start_ping = time.time()
+        try:
+            sample_payload = {
+                "dataframe_split": {
+                    "columns": FEATURES,
+                    "data": [
+                        [PRESETS["⚡ Express Standard"][f] for f in FEATURES]
+                    ],
+                }
+            }
+            res = requests.post(MLFLOW_ENDPOINT, json=sample_payload, timeout=4)
+            ping_ms = int((time.time() - start_ping) * 1000)
+
+            if res.status_code == 200:
+                st.success(
+                    f"🟢 Connection Successful! Response Status: HTTP {res.status_code} ({ping_ms} ms latency)"
+                )
+            else:
+                st.warning(
+                    f"🟡 Endpoint responded with HTTP Status {res.status_code} ({ping_ms} ms)"
+                )
+        except Exception as err:
+            st.error(
+                f"🔴 Connection Failed: MLflow model server is not reachable at {MLFLOW_ENDPOINT}. Details: {str(err)}"
+            )
+
+    st.markdown("### 🧬 End-to-End Pipeline Workflow")
+    st.code(
+        """
+[ Ingest Data ] -> [ Clean & Preprocess (Strategy Pattern) ] 
+                 -> [ Multi-Model Optuna Fine Tuning ] 
+                 -> [ Model Benchmark Evaluation ] 
+                 -> [ Quality Gate Threshold Check (R² >= 0.08) ] 
+                 -> [ Champion Tag Promotion in MLflow Registry ] 
+                 -> [ Continuous REST Model Server Deployment ] 
+                 -> [ Streamlit UI Consumption ]
     """,
-    unsafe_allow_html=True,
-)
+        language="text",
+    )
 
-arch1, arch2, arch3, arch4, arch5 = st.columns(5)
+# ------------------------------------------------------------
+# TAB 4: SESSION HISTORY LOGS
+# ------------------------------------------------------------
 
-architecture = [
-    ("Data", "Olist Dataset"),
-    ("Pipeline", "ZenML"),
-    ("Tracking", "MLflow"),
-    ("Model", "LightGBM"),
-    ("Serving", "MLflow API"),
-]
+with tab4:
 
-for column, (title, value) in zip(
-    [arch1, arch2, arch3, arch4, arch5],
-    architecture,
-):
+    st.markdown(
+        """
+        <div class="glass-card">
+            <div class="glass-card-header">📜 Session Prediction History</div>
+            <div class="glass-card-sub">Predictions recorded during your current active session.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with column:
+    if st.session_state.prediction_history:
 
-        st.markdown(
-            f"""
-            <div class="metric-card">
+        if st.button("🗑️ Clear History"):
+            st.session_state.prediction_history = []
+            st.rerun()
 
-                <div class="metric-label">
-                    {title}
-                </div>
+        history_df = pd.DataFrame(st.session_state.prediction_history)
+        st.dataframe(history_df, use_container_width=True)
 
-                <div class="metric-value">
-                    {value}
-                </div>
-
-                <div class="metric-description">
-                    MLOps component
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
+    else:
+        st.info("No predictions recorded in this session yet.")
 
 # ============================================================
-# Footer
+# Global Footer
 # ============================================================
 
 st.markdown(
     """
-    <div class="footer">
-        Customer Satisfaction MLOps Platform
-        &nbsp;•&nbsp;
-        ZenML
-        &nbsp;•&nbsp;
-        MLflow
-        &nbsp;•&nbsp;
-        LightGBM
-        &nbsp;•&nbsp;
-        Streamlit
+    <div class="footer-bar">
+        Customer Satisfaction MLOps Platform &nbsp;•&nbsp; Powered by ZenML, MLflow, LightGBM & Streamlit
     </div>
     """,
     unsafe_allow_html=True,

@@ -12,7 +12,6 @@ from datetime import datetime
 
 st.set_page_config(
     page_title="Customer Satisfaction AI | MLOps Platform",
-    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -38,7 +37,7 @@ FEATURES = [
 ]
 
 PRESETS = {
-    "🌟 VIP / High Satisfaction": {
+    "VIP / High Satisfaction": {
         "payment_sequential": 1,
         "payment_installments": 1,
         "payment_value": 350.0,
@@ -52,7 +51,7 @@ PRESETS = {
         "product_height_cm": 12.0,
         "product_width_cm": 14.0,
     },
-    "⚡ Express Standard": {
+    "Express Standard": {
         "payment_sequential": 1,
         "payment_installments": 2,
         "payment_value": 110.0,
@@ -66,7 +65,7 @@ PRESETS = {
         "product_height_cm": 15.0,
         "product_width_cm": 20.0,
     },
-    "📦 Heavy Freight & Slow": {
+    "Heavy Freight & Slow": {
         "payment_sequential": 2,
         "payment_installments": 10,
         "payment_value": 180.0,
@@ -80,7 +79,7 @@ PRESETS = {
         "product_height_cm": 50.0,
         "product_width_cm": 45.0,
     },
-    "⚠️ High Risk / Poor Listing": {
+    "High Risk / Poor Listing": {
         "payment_sequential": 3,
         "payment_installments": 12,
         "payment_value": 45.0,
@@ -104,7 +103,7 @@ if "use_mock_fallback" not in st.session_state:
     st.session_state.use_mock_fallback = False
 
 # Populate default input values if not present
-for preset_key, preset_val in PRESETS["⚡ Express Standard"].items():
+for preset_key, preset_val in PRESETS["Express Standard"].items():
     if preset_key not in st.session_state:
         st.session_state[preset_key] = preset_val
 
@@ -407,7 +406,7 @@ with st.sidebar:
         """
         <div class="sidebar-brand">
             <div class="sidebar-brand-title">
-                ⚡ Customer AI
+                Customer AI
             </div>
             <div class="sidebar-brand-sub">
                 MLOps Prediction & Analytics Engine
@@ -417,7 +416,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    st.markdown("### 🛠️ Execution Mode")
+    st.markdown("### Execution Mode")
     mock_mode = st.toggle(
         "Offline Mock Mode (Demo)",
         value=st.session_state.use_mock_fallback,
@@ -427,17 +426,17 @@ with st.sidebar:
 
     if mock_mode:
         st.markdown(
-            '<div class="sidebar-badge badge-mock">🟡 Mock Model Mode</div>',
+            '<div class="sidebar-badge badge-mock">● Mock Model Mode</div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            '<div class="sidebar-badge badge-online">🟢 MLflow Server Target</div>',
+            '<div class="sidebar-badge badge-online">● MLflow Server Target</div>',
             unsafe_allow_html=True,
         )
 
     st.markdown("---")
-    st.markdown("### 📋 Production MLOps Stack")
+    st.markdown("### Production MLOps Stack")
     st.markdown(
         """
         - **Pipeline Framework**: ZenML
@@ -449,7 +448,7 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.markdown("### 📊 Dataset Reference")
+    st.markdown("### Dataset Reference")
     st.markdown(
         """
         - **Source**: Olist Brazilian E-Commerce
@@ -480,10 +479,10 @@ st.markdown(
 
 tab1, tab2, tab3, tab4 = st.tabs(
     [
-        "🔮 Single Predictor",
-        "📁 Batch CSV Prediction",
-        "🛠️ MLOps System Health",
-        "📜 Session History Logs",
+        "Single Predictor",
+        "Batch CSV Prediction",
+        "MLOps System Health",
+        "Session History Logs",
     ]
 )
 
@@ -494,7 +493,7 @@ tab1, tab2, tab3, tab4 = st.tabs(
 with tab1:
 
     # Presets Bar
-    st.markdown("##### ⚡ Quick Scenario Presets")
+    st.markdown("##### Quick Scenario Presets")
     preset_cols = st.columns(4)
 
     for i, (preset_name, _) in enumerate(PRESETS.items()):
@@ -517,7 +516,7 @@ with tab1:
             st.markdown(
                 """
                 <div class="glass-card">
-                    <div class="glass-card-header">💳 Order & Payment Details</div>
+                    <div class="glass-card-header">Order & Payment Details</div>
                     <div class="glass-card-sub">Transaction values, payment methods, and installment structure.</div>
                 </div>
                 """,
@@ -558,7 +557,7 @@ with tab1:
             st.markdown(
                 """
                 <div class="glass-card">
-                    <div class="glass-card-header">🚚 Shipping & Physical Characteristics</div>
+                    <div class="glass-card-header">Shipping & Physical Characteristics</div>
                     <div class="glass-card-sub">Freight costs, weight, and dimensional measurements.</div>
                 </div>
                 """,
@@ -607,7 +606,7 @@ with tab1:
             st.markdown(
                 """
                 <div class="glass-card">
-                    <div class="glass-card-header">📝 Product Listing Quality</div>
+                    <div class="glass-card-header">Product Listing Quality</div>
                     <div class="glass-card-sub">Media richness and description completeness.</div>
                 </div>
                 """,
@@ -643,7 +642,7 @@ with tab1:
         st.markdown(
             """
             <div class="glass-card">
-                <div class="glass-card-header">📈 Derived Feature Analytics</div>
+                <div class="glass-card-header">Derived Feature Analytics</div>
                 <div class="glass-card-sub">Real-time calculated metrics sent to the model.</div>
             </div>
             """,
@@ -701,7 +700,7 @@ with tab1:
         st.markdown("<br>", unsafe_allow_html=True)
 
         predict_btn = st.button(
-            "⚡ Predict Customer Satisfaction",
+            "Predict Customer Satisfaction",
             type="primary",
             use_container_width=True,
         )
@@ -769,22 +768,22 @@ with tab1:
             if display_score >= 4.5:
                 class_style = "score-emerald"
                 badge_style = "bg-emerald"
-                status_text = "🌟 Outstanding Satisfaction"
+                status_text = "Outstanding Satisfaction"
                 desc_text = "The customer is highly likely to rate 5 stars. Delivery, pricing, and media listing parameters are optimized."
             elif display_score >= 4.0:
                 class_style = "score-indigo"
                 badge_style = "bg-indigo"
-                status_text = "✨ High Satisfaction"
+                status_text = "High Satisfaction"
                 desc_text = "Positive review expected. Good overall balance between product pricing and shipping cost."
             elif display_score >= 3.0:
                 class_style = "score-amber"
                 badge_style = "bg-amber"
-                status_text = "⚠️ Moderate Satisfaction"
+                status_text = "Moderate Satisfaction"
                 desc_text = "Average score expected. Consider reducing freight costs or enhancing product photo count."
             else:
                 class_style = "score-crimson"
                 badge_style = "bg-crimson"
-                status_text = "🚨 Low Satisfaction Risk"
+                status_text = "Low Satisfaction Risk"
                 desc_text = "High probability of negative review. High freight-to-price ratio or sparse listing information detected."
 
             # Save to session history
@@ -834,7 +833,7 @@ with tab2:
     st.markdown(
         """
         <div class="glass-card">
-            <div class="glass-card-header">📁 Bulk Dataset Prediction</div>
+            <div class="glass-card-header">Bulk Dataset Prediction</div>
             <div class="glass-card-sub">Upload a CSV file containing order features to predict scores for hundreds of transactions at once.</div>
         </div>
         """,
@@ -844,16 +843,16 @@ with tab2:
     # Sample CSV Download Button
     sample_df = pd.DataFrame(
         [
-            PRESETS["🌟 VIP / High Satisfaction"],
-            PRESETS["⚡ Express Standard"],
-            PRESETS["📦 Heavy Freight & Slow"],
-            PRESETS["⚠️ High Risk / Poor Listing"],
+            PRESETS["VIP / High Satisfaction"],
+            PRESETS["Express Standard"],
+            PRESETS["Heavy Freight & Slow"],
+            PRESETS["High Risk / Poor Listing"],
         ]
     )
 
     csv_data = sample_df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="📥 Download Sample Batch Input CSV Template",
+        label="Download Sample Batch Input CSV Template",
         data=csv_data,
         file_name="sample_customer_orders.csv",
         mime="text/csv",
@@ -877,7 +876,7 @@ with tab2:
                     f"Uploaded CSV is missing required model features: {missing_cols}"
                 )
             else:
-                if st.button("🚀 Run Batch Prediction", type="primary"):
+                if st.button("Run Batch Prediction", type="primary"):
                     batch_predictions = []
 
                     with st.spinner("Executing batch predictions..."):
@@ -930,7 +929,7 @@ with tab2:
 
                     out_csv = df_batch.to_csv(index=False).encode("utf-8")
                     st.download_button(
-                        label="📥 Download Scored Batch Results CSV",
+                        label="Download Scored Batch Results CSV",
                         data=out_csv,
                         file_name="customer_predictions_results.csv",
                         mime="text/csv",
@@ -948,7 +947,7 @@ with tab3:
     st.markdown(
         """
         <div class="glass-card">
-            <div class="glass-card-header">🛠️ MLOps Stack Architecture & Health Diagnostics</div>
+            <div class="glass-card-header">MLOps Stack Architecture & Health Diagnostics</div>
             <div class="glass-card-sub">Real-time status of pipeline orchestrator, experiment tracker, and model endpoint.</div>
         </div>
         """,
@@ -993,14 +992,14 @@ with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Connection Diagnostic Button
-    if st.button("🔍 Ping MLflow Server Endpoint"):
+    if st.button("Ping MLflow Server Endpoint"):
         start_ping = time.time()
         try:
             sample_payload = {
                 "dataframe_split": {
                     "columns": FEATURES,
                     "data": [
-                        [PRESETS["⚡ Express Standard"][f] for f in FEATURES]
+                        [PRESETS["Express Standard"][f] for f in FEATURES]
                     ],
                 }
             }
@@ -1009,18 +1008,18 @@ with tab3:
 
             if res.status_code == 200:
                 st.success(
-                    f"🟢 Connection Successful! Response Status: HTTP {res.status_code} ({ping_ms} ms latency)"
+                    f"Connection Successful! Response Status: HTTP {res.status_code} ({ping_ms} ms latency)"
                 )
             else:
                 st.warning(
-                    f"🟡 Endpoint responded with HTTP Status {res.status_code} ({ping_ms} ms)"
+                    f"Endpoint responded with HTTP Status {res.status_code} ({ping_ms} ms)"
                 )
         except Exception as err:
             st.error(
-                f"🔴 Connection Failed: MLflow model server is not reachable at {MLFLOW_ENDPOINT}. Details: {str(err)}"
+                f"Connection Failed: MLflow model server is not reachable at {MLFLOW_ENDPOINT}. Details: {str(err)}"
             )
 
-    st.markdown("### 🧬 End-to-End Pipeline Workflow")
+    st.markdown("### End-to-End Pipeline Workflow")
     st.code(
         """
 [ Ingest Data ] -> [ Clean & Preprocess (Strategy Pattern) ] 
@@ -1043,7 +1042,7 @@ with tab4:
     st.markdown(
         """
         <div class="glass-card">
-            <div class="glass-card-header">📜 Session Prediction History</div>
+            <div class="glass-card-header">Session Prediction History</div>
             <div class="glass-card-sub">Predictions recorded during your current active session.</div>
         </div>
         """,
@@ -1052,7 +1051,7 @@ with tab4:
 
     if st.session_state.prediction_history:
 
-        if st.button("🗑️ Clear History"):
+        if st.button("Clear History"):
             st.session_state.prediction_history = []
             st.rerun()
 
